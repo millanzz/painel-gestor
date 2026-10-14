@@ -1,0 +1,6 @@
+{
+  "name": "@painel-gestor/shared",
+  "private": true,
+  "type": "module",
+  "description": "Regras e tipos compartilhados entre a API e o front (importados como @shared)."
+}

@@ -1,0 +1,25 @@
+{
+  "name": "painel-gestor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gestão de painéis (outdoors) para exibidoras: agenda de faces, reservas, contratos, campo, financeiro e portal do anunciante.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:migrate": "npm run migrate -w server",
+    "db:seed": "npm run seed -w server",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w server"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
