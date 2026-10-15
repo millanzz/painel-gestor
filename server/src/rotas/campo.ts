@@ -6,9 +6,12 @@ import { z } from 'zod';
 import { addDays, distanciaM, OS_LBL, OS_TIPOS, RAIO_FOTO_M, today } from '@shared';
 import { registrar } from '../auditoria';
 import { editar, ler, type Ctx } from '../contexto';
+import { env } from '../env';
+import { whatsappAtivo, enviarWhatsapp } from '../integracoes/whatsapp';
 import { rotasCrud, type DefRecurso } from '../crud';
 import { inserir, pool, q, q1, tx } from '../db';
 import { concluirOSPelaFoto } from '../dominio';
+import { guardar, ler as lerArquivo, otimizarImagem } from '../integracoes/armazenamento';
 import { ErroApi, invalido, naoEncontrado, validar, zData, zId, zTexto } from '../http';
 
 export const upload = multer({
@@ -82,9 +85,13 @@ export function verificarLocal(exif: { lat?: number; lng?: number }, ponto: { la
   return { verificacao: d <= RAIO_FOTO_M ? ('ok' as const) : ('longe' as const), distanciaM: d };
 }
 
+/** Comprime a imagem, grava no armazenamento (S3/R2 ou disco) e registra no banco. */
 export async function guardarArquivo(c: PoolClient, empresaId: string, f: Express.Multer.File) {
-  return inserir<any>(c, 'arquivos', { empresaId, nome: f.originalname || 'foto.jpg', mime: f.mimetype, tamanho: f.size, dados: f.buffer },
-    ['empresaId', 'nome', 'mime', 'tamanho', 'dados']);
+  const { buf, mime } = await otimizarImagem(f.buffer, f.mimetype);
+  const { chave, armazenamento } = await guardar(empresaId, buf, mime);
+  const nome = (f.originalname || 'foto').replace(/\.[^.]+$/, '') + (mime === 'image/jpeg' ? '.jpg' : '');
+  return inserir<any>(c, 'arquivos', { empresaId, nome, mime, tamanho: buf.length, chave, armazenamento },
+    ['empresaId', 'nome', 'mime', 'tamanho', 'chave', 'armazenamento']);
 }
 
 async function salvarComprovacao(c: PoolClient, ctx: Ctx, f: Express.Multer.File, d: { painelId: string; reservaId: string | null; osId: string | null; tipo: string }) {
@@ -144,6 +151,7 @@ campo.post('/fotos', editar('comprovacoes'), upload.single('arquivo'), async (re
   }), req.body);
   const out = await tx((c) => salvarComprovacao(c, req.ctx!, req.file!, d as any));
   res.status(201).json(out);
+  avisarClienteFoto(req.ctx!, out).catch((e) => console.error('[aviso de foto]', e.message));
 });
 
 campo.get('/fotos', ler('comprovacoes'), async (req, res) => {
@@ -179,7 +187,7 @@ export const arquivos = Router();
 /** Entrega um arquivo da empresa. O anunciante só acessa fotos e artes das próprias campanhas. */
 arquivos.get('/:id', async (req, res) => {
   const ctx = req.ctx!;
-  const a = await q1<any>(pool, 'SELECT id, nome, mime, dados FROM arquivos WHERE id = $1 AND empresa_id = $2', [req.params.id, ctx.empresaId]);
+  const a = await q1<any>(pool, 'SELECT id, nome, mime, dados, chave, armazenamento FROM arquivos WHERE id = $1 AND empresa_id = $2', [req.params.id, ctx.empresaId]);
   if (!a) throw naoEncontrado('Arquivo');
   if (ctx.perfil === 'cliente') {
     const ok = await q1(pool,
@@ -194,5 +202,21 @@ arquivos.get('/:id', async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(a.nome)}"`);
-  res.send(a.dados);
+  res.send(await lerArquivo(a));
 });
+
+/** Primeira foto conferida de uma reserva: avisa o anunciante no WhatsApp (se a empresa ligou essa opção). */
+async function avisarClienteFoto(ctx: Ctx, foto: any) {
+  if (foto.verificacao !== 'ok' || !foto.reservaId || foto.tipo === 'retirada') return;
+  const { ativo, cfg } = await whatsappAtivo(pool, ctx.empresaId);
+  if (!ativo || !cfg.config.avisarFoto) return;
+  const n = await q1<any>(pool, `SELECT count(*)::int AS n FROM comprovacoes WHERE reserva_id = $1 AND verificacao = 'ok' AND excluido_em IS NULL`, [foto.reservaId]);
+  if (n.n !== 1) return;
+  const d = await q1<any>(pool,
+    `SELECT k.campanha, c.telefone, c.contato, e.endereco, e.cidade FROM reservas r JOIN contratos k ON k.id = r.contrato_id JOIN clientes c ON c.id = k.cliente_id
+       JOIN paineis p ON p.id = r.painel_id LEFT JOIN estruturas e ON e.id = p.estrutura_id WHERE r.id = $1`, [foto.reservaId]);
+  if (!d?.telefone) return;
+  const nome = d.contato ? `, ${String(d.contato).split(' ')[0]}` : '';
+  await enviarWhatsapp(ctx.empresaId, d.telefone,
+    `Olá${nome}! A campanha "${d.campanha}" já está no ar em ${d.endereco}, ${d.cidade}. A equipe conferiu a foto no local. Veja no portal: ${env.appUrl}`, { automatica: true, cfg });
+}

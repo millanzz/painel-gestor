@@ -121,6 +121,15 @@ function ListaCobranca({ itens }: { itens: any[] }) {
   const qc = useQueryClient();
   const { avisar } = useAvisos();
   const [pix, setPix] = useState<any>(null);
+  const [enviando, setEnviando] = useState<string | null>(null);
+  const enviarApi = async (c: any) => {
+    setEnviando(c.lancamento.id);
+    try {
+      const r = await api.post('/financeiro/cobrancas/enviar', { lancamentoId: c.lancamento.id, etapa: c.etapa });
+      avisar(r.status === 'simulada' ? 'Cobrança registrada (WhatsApp em modo simulado).' : 'Cobrança enviada pelo WhatsApp.');
+      ['lancamentos', 'inicio', 'mensagens'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    } catch (x) { avisar((x as Error).message, true); } finally { setEnviando(null); }
+  };
   const marcar = async (c: any) => {
     await api.post('/financeiro/cobrancas', { lancamentoId: c.lancamento.id, etapa: c.etapa });
     qc.invalidateQueries({ queryKey: ['lancamentos'] }); qc.invalidateQueries({ queryKey: ['inicio'] });
@@ -142,7 +151,9 @@ function ListaCobranca({ itens }: { itens: any[] }) {
               <span className="mono">{money(l.valor)}</span>
               <div className="linha g-100">
                 <button className="btn btn-sec btn-sm so-icone" aria-label="PIX" title="PIX copia e cola" onClick={() => setPix(l)}><Icone n="pix" /></button>
-                {c.enviada ? <Badge tom="ok"><Icone n="check" t={12} largura={2.5} />Enviada</Badge> : c.whatsapp
+                {c.enviada ? <Badge tom="ok"><Icone n="check" t={12} largura={2.5} />Enviada</Badge> : c.envioAutomatico && l.clienteTelefone
+                  ? <button className="btn btn-pri btn-sm" disabled={enviando === l.id} onClick={() => enviarApi(c)}><Icone n="whatsapp" />{enviando === l.id ? 'Enviando…' : 'Enviar'}</button>
+                  : c.whatsapp
                   ? <a className="btn btn-pri btn-sm" href={c.whatsapp} target="_blank" rel="noreferrer" onClick={() => setTimeout(() => marcar(c), 400)}><Icone n="whatsapp" />Enviar</a>
                   : <button className="btn btn-sec btn-sm" onClick={() => { navigator.clipboard?.writeText(c.mensagem); avisar('Mensagem copiada. Cliente sem telefone cadastrado.'); marcar(c); }}><Icone n="copiar" />Copiar</button>}
               </div>
@@ -177,11 +188,40 @@ function Cobrar() {
   const { empresa } = useSessao();
   if (q.isLoading) return <Carregando />;
   const regua = (empresa?.config.regua || []).map((d) => (d < 0 ? `${-d} dia(s) antes` : d === 0 ? 'no dia' : `${d} dia(s) depois`)).join(', ');
+  const itens = q.data || [];
+  const auto = itens[0]?.automatico, prov = itens[0]?.envioAutomatico;
   return (
     <div className="miolo">
-      <p className="t2 xs">Régua de cobrança: {regua}. Cada envio fica registrado na parcela.</p>
-      <ListaCobranca itens={q.data || []} />
+      {auto
+        ? <div className="aviso-linha ok"><Icone n="check" /><div><b>Cobrança automática ligada.</b> As mensagens da régua saem sozinhas pelo WhatsApp em horário comercial{prov === 'simulado' ? ' (modo simulado: ficam só registradas)' : ''}. Você ainda pode enviar na hora por aqui.</div></div>
+        : <p className="t2 xs">Régua de cobrança: {regua}. {prov ? 'O botão Enviar manda pelo WhatsApp da empresa.' : 'O botão Enviar abre o WhatsApp com a mensagem pronta.'} Cada envio fica registrado na parcela. Para enviar sozinho, ligue em Configurações → Integrações.</p>}
+      <ListaCobranca itens={itens} />
+      <Historico />
     </div>
+  );
+}
+
+function Historico() {
+  const q = useQuery({ queryKey: ['mensagens'], queryFn: () => api.get<any[]>('/integracoes/mensagens') });
+  const lista = (q.data || []).filter((m) => m.canal === 'whatsapp');
+  if (!lista.length) return null;
+  return (
+    <section className="pilha g-150">
+      <h2 className="h-sec">Mensagens enviadas</h2>
+      <div className="card tabela-wrap">
+        <table className="tabela">
+          <thead><tr><th>Quando</th><th>Para</th><th>Mensagem</th><th>Situação</th></tr></thead>
+          <tbody>{lista.slice(0, 30).map((m) => (
+            <tr key={m.id}>
+              <td className="xs" style={{ whiteSpace: 'nowrap' }}>{new Date(m.criadoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}{m.automatica && <div className="sm t3">automática</div>}</td>
+              <td className="mono xs">{m.para}</td>
+              <td className="xs"><span className="trunc" style={{ display: 'block', maxWidth: 420 }} title={m.texto}>{m.lancamento || m.texto.split('\n')[0]}</span></td>
+              <td>{m.status === 'enviada' ? <Badge tom="ok">Enviada</Badge> : m.status === 'simulada' ? <Badge tom="info">Simulada</Badge> : <span title={m.erro}><Badge tom="bad">Erro</Badge><div className="sm bad-t trunc" style={{ maxWidth: 200 }}>{m.erro}</div></span>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -293,53 +333,121 @@ function Notas() {
   const { empresa, edita } = useSessao();
   const qc = useQueryClient();
   const { avisar } = useAvisos();
+  const cfgNf = useQuery({ queryKey: ['nf-config'], queryFn: () => api.get('/financeiro/nf-config') });
   const q = useQuery({ queryKey: ['lancamentos', 'nf'], queryFn: () => api.get<any[]>('/lancamentos?nf=pendente') });
-  const [emitir, setEmitir] = useState<any>(null);
+  const emitidas = useQuery({ queryKey: ['lancamentos', 'nf-emitidas'], queryFn: () => api.get<any[]>('/lancamentos?nfStatus=emitida') });
+  const [registrar, setRegistrar] = useState<any>(null);
+  const [cancelar, setCancelar] = useState<any>(null);
+  const [just, setJust] = useState('');
   const [v, setV] = useState({ numero: '', data: today(), link: '' });
   const [erro, setErro] = useState<unknown>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
   const nfse = empresa?.config.nfse;
+  const prov = cfgNf.data?.provedor || 'manual';
+  const auto = prov !== 'manual';
+  const atualizar = () => ['lancamentos', 'contrato', 'inicio'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  const acao = async (id: string, fn: () => Promise<any>) => {
+    setOcupado(id);
+    try {
+      const r = await fn();
+      if (r?.status === 'emitida') avisar(`Nota ${r.lancamento?.nfNumero || r.numero || ''} emitida${r.simulada || r.lancamento?.nfSimulada ? ' (simulada)' : ''}.`);
+      else if (r?.status === 'processando') avisar('Nota enviada. A prefeitura está processando; atualize em alguns instantes.');
+      else if (r?.status === 'erro') avisar(`A prefeitura recusou: ${r.erro || r.lancamento?.nfErro}`, true);
+      atualizar();
+    } catch (x) { avisar((x as Error).message, true); } finally { setOcupado(null); }
+  };
   const salvar = async () => {
-    try { await api.post(`/lancamentos/${emitir.id}/nf`, v); qc.invalidateQueries({ queryKey: ['lancamentos'] }); avisar('Nota registrada.'); setEmitir(null); } catch (x) { setErro(x); }
+    try { await api.post(`/lancamentos/${registrar.id}/nf`, v); atualizar(); avisar('Nota registrada.'); setRegistrar(null); } catch (x) { setErro(x); }
+  };
+  const fazerCancelamento = async () => {
+    try { await api.post(`/lancamentos/${cancelar.id}/nf/cancelar`, { justificativa: just }); atualizar(); avisar('Nota cancelada.'); setCancelar(null); } catch (x) { setErro(x); }
   };
   const copiar = (l: any) => {
-    const txt = `Tomador: ${l.clienteNome || ''}${l.clienteDocumento ? ` (${l.clienteDocumento})` : ''}\nServiço: ${nfse?.descricao || 'Veiculação de mídia exterior'}${nfse?.codigoServico ? ` · código ${nfse.codigoServico}` : ''}\nDescrição: ${l.descricao}\nValor: ${money(l.valor)}\nAlíquota ISS: ${nfse?.aliquota ?? 5}%`;
+    const txt = `Tomador: ${l.clienteNome || ''}${l.clienteDocumento ? ` (${l.clienteDocumento})` : ''}\nServiço: ${nfse?.descricao || 'Veiculação de mídia exterior'}${nfse?.codigoServico ? ` · item ${nfse.codigoServico}` : ''}\nDescrição: ${l.descricao}\nValor: ${money(l.valor)}\nAlíquota ISS: ${nfse?.aliquota ?? 5}%`;
     navigator.clipboard?.writeText(txt); avisar('Dados da nota copiados.');
   };
+  const situacao = (l: any) => l.nfStatus === 'processando' ? <Badge tom="info">Processando</Badge>
+    : l.nfStatus === 'cancelada' ? <Badge tom="neu">Nota cancelada</Badge>
+    : l.nfStatus === 'erro' ? <span title={l.nfErro}><Badge tom="bad">Recusada</Badge><div className="sm bad-t" style={{ maxWidth: 280 }}>{l.nfErro}</div></span>
+      : <Badge tom="warn">A emitir</Badge>;
+  const quando = cfgNf.data?.automatica === 'ao_pagar' ? 'assim que a parcela é paga' : cfgNf.data?.automatica === 'ao_vencer' ? `${cfgNf.data.diasAntes} dia(s) antes do vencimento` : null;
   return (
     <div className="miolo">
-      <div className="linha wrap entre g-150">
-        <p className="t2 xs">Copie os dados para o emissor da prefeitura e registre o número da nota aqui.</p>
-        {nfse?.emissorUrl && <a className="btn btn-sec" href={nfse.emissorUrl} target="_blank" rel="noreferrer"><Icone n="link" />Abrir emissor</a>}
-      </div>
-      {q.isLoading ? <Carregando /> : (
-        <div className="card tabela-wrap">
-          {(q.data || []).length ? (
+      {auto ? (
+        <div className={`aviso-linha ${prov === 'simulado' ? 'info' : 'ok'}`}><Icone n={prov === 'simulado' ? 'info' : 'check'} />
+          <div><b>{prov === 'simulado' ? 'Emissão em modo simulado.' : `Emissão pela Focus NFe (${cfgNf.data?.ambiente === 'producao' ? 'produção' : 'homologação'}).`}</b>{' '}
+            {quando ? `As notas saem sozinhas ${quando}.` : 'Clique em Emitir em cada parcela.'}{prov === 'simulado' ? ' Os números são de teste e não valem como nota fiscal.' : ''}</div>
+        </div>
+      ) : (
+        <div className="linha wrap entre g-150">
+          <p className="t2 xs">Copie os dados para o emissor da prefeitura e registre o número aqui. Para emitir direto pelo sistema, ligue em Configurações → Integrações.</p>
+          {nfse?.emissorUrl && <a className="btn btn-sec" href={nfse.emissorUrl} target="_blank" rel="noreferrer"><Icone n="link" />Abrir emissor</a>}
+        </div>
+      )}
+      <section className="pilha g-150">
+        <h2 className="h-sec">Pendentes</h2>
+        {q.isLoading ? <Carregando /> : (
+          <div className="card tabela-wrap">
+            {(q.data || []).length ? (
+              <table className="tabela">
+                <thead><tr><th>Vencimento</th><th>Parcela</th><th className="dir">Valor</th><th>Situação</th><th /></tr></thead>
+                <tbody>{q.data!.map((l) => (
+                  <tr key={l.id}>
+                    <td>{fdate(l.vencimento)}</td>
+                    <td>{l.descricao}<div className="sm t3">{l.clienteNome}{l.status === 'pago' ? ' · paga' : ''}</div></td>
+                    <td className="dir mono">{money(l.valor)}</td>
+                    <td>{situacao(l)}</td>
+                    <td className="dir"><div className="linha g-100" style={{ justifyContent: 'flex-end' }}>
+                      {auto && edita('lancamentos') && l.nfStatus === 'processando' && <button className="btn btn-sec btn-sm" disabled={ocupado === l.id} onClick={() => acao(l.id, () => api.post(`/lancamentos/${l.id}/nf/consultar`))}>Atualizar</button>}
+                      {auto && edita('lancamentos') && l.nfStatus !== 'processando' && <button className="btn btn-pri btn-sm" disabled={ocupado === l.id} onClick={() => acao(l.id, () => api.post(`/lancamentos/${l.id}/nf/emitir`))}>{ocupado === l.id ? 'Emitindo…' : l.nfStatus === 'erro' ? 'Tentar de novo' : 'Emitir'}</button>}
+                      {!auto && <button className="btn btn-sec btn-sm" onClick={() => copiar(l)}><Icone n="copiar" />Copiar dados</button>}
+                      {!auto && edita('lancamentos') && <button className="btn btn-pri btn-sm" onClick={() => { setV({ numero: '', data: today(), link: '' }); setErro(null); setRegistrar(l); }}>Registrar nota</button>}
+                    </div></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            ) : <Vazio titulo="Nenhuma nota pendente" />}
+          </div>
+        )}
+      </section>
+      {(emitidas.data || []).length > 0 && (
+        <section className="pilha g-150">
+          <h2 className="h-sec">Emitidas</h2>
+          <div className="card tabela-wrap">
             <table className="tabela">
-              <thead><tr><th>Vencimento</th><th>Parcela</th><th className="dir">Valor</th><th /></tr></thead>
-              <tbody>{q.data!.map((l) => (
+              <thead><tr><th>Nota</th><th>Parcela</th><th className="dir">Valor</th><th /></tr></thead>
+              <tbody>{emitidas.data!.slice().reverse().slice(0, 30).map((l) => (
                 <tr key={l.id}>
-                  <td>{fdate(l.vencimento)}</td>
+                  <td><span className="mono" style={{ fontWeight: 500 }}>{l.nfNumero}</span>{l.nfSimulada && <> <Badge tom="info">teste</Badge></>}<div className="sm t3">{fdate(l.nfData)}{l.nfCodigoVerificacao ? ` · cód. ${l.nfCodigoVerificacao}` : ''}</div></td>
                   <td>{l.descricao}<div className="sm t3">{l.clienteNome}</div></td>
                   <td className="dir mono">{money(l.valor)}</td>
                   <td className="dir"><div className="linha g-100" style={{ justifyContent: 'flex-end' }}>
-                    <button className="btn btn-sec btn-sm" onClick={() => copiar(l)}><Icone n="copiar" />Copiar dados</button>
-                    {edita('lancamentos') && <button className="btn btn-pri btn-sm" onClick={() => { setV({ numero: '', data: today(), link: '' }); setEmitir(l); }}>Registrar nota</button>}
+                    {l.nfLink && <a className="btn btn-sec btn-sm" href={l.nfLink} target="_blank" rel="noreferrer"><Icone n="pdf" />Ver nota</a>}
+                    {l.nfXml && <a className="btn btn-txt btn-sm" href={l.nfXml} target="_blank" rel="noreferrer">XML</a>}
+                    {edita('lancamentos') && (auto || l.nfSimulada) && <button className="btn btn-txt btn-sm" style={{ color: 'var(--c-bad)' }} onClick={() => { setJust(''); setErro(null); setCancelar(l); }}>Cancelar</button>}
                   </div></td>
                 </tr>
               ))}</tbody>
             </table>
-          ) : <Vazio titulo="Todas as notas emitidas" />}
-        </div>
+          </div>
+        </section>
       )}
-      {emitir && (
-        <Dialogo titulo="Registrar nota fiscal" fechar={() => setEmitir(null)} rodape={<><button className="btn btn-sec" onClick={() => setEmitir(null)}>Cancelar</button><button className="btn btn-pri" onClick={salvar} disabled={!v.numero}>Salvar</button></>}>
-          <p className="xs t2">{emitir.descricao} · {money(emitir.valor)}</p>
+      {registrar && (
+        <Dialogo titulo="Registrar nota fiscal" fechar={() => setRegistrar(null)} rodape={<><button className="btn btn-sec" onClick={() => setRegistrar(null)}>Cancelar</button><button className="btn btn-pri" onClick={salvar} disabled={!v.numero}>Salvar</button></>}>
+          <p className="xs t2">{registrar.descricao} · {money(registrar.valor)}</p>
           <ErroCaixa erro={erro} />
           <div className="form">
             <Campo rotulo="Número da nota"><input className="entrada mono" value={v.numero} onChange={(e) => setV({ ...v, numero: e.target.value })} autoFocus /></Campo>
             <Campo rotulo="Data de emissão"><input className="entrada" type="date" value={v.data} onChange={(e) => setV({ ...v, data: e.target.value })} /></Campo>
             <Campo rotulo="Link da nota (opcional)" className="largo"><input className="entrada" value={v.link} onChange={(e) => setV({ ...v, link: e.target.value })} /></Campo>
           </div>
+        </Dialogo>
+      )}
+      {cancelar && (
+        <Dialogo titulo={`Cancelar nota ${cancelar.nfNumero}`} fechar={() => setCancelar(null)} rodape={<><button className="btn btn-sec" onClick={() => setCancelar(null)}>Voltar</button><button className="btn btn-perigo" disabled={just.trim().length < 15} onClick={fazerCancelamento}>Cancelar nota</button></>}>
+          <ErroCaixa erro={erro} />
+          <Campo rotulo="Motivo do cancelamento" ajuda="A prefeitura exige pelo menos 15 caracteres."><textarea className="entrada" value={just} onChange={(e) => setJust(e.target.value)} autoFocus /></Campo>
+          <p className="sm t2">A parcela volta para as pendentes, para você emitir a nota correta.</p>
         </Dialogo>
       )}
     </div>

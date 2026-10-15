@@ -8,6 +8,10 @@ import { buscar, rotasCrud, salvar, type DefRecurso } from '../crud';
 import { inserir, pool, q, q1, tx } from '../db';
 import { aposBaixa } from '../dominio';
 import { env } from '../env';
+import { enviarCobranca } from '../integracoes/automacoes';
+import { cancelarNota, consultarNota, emitirNota } from '../integracoes/nfse';
+import { whatsappAtivo } from '../integracoes/whatsapp';
+import { carregar } from '../integracoes/config';
 import { invalido, naoEncontrado, validar, zData, zDataObrig, zId, zNumObrig, zTexto, zTextoObrig } from '../http';
 
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } });
@@ -19,7 +23,7 @@ export const defLancamentos: DefRecurso = {
     descricao: zTextoObrig, contratoId: zId, painelId: zId, estruturaId: zId,
     vencimento: zDataObrig, valor: zNumObrig.pipe(z.number().min(0)),
     status: z.enum(['aberto', 'pago', 'cancelado']).default('aberto'), pagoEm: zData,
-    nfStatus: z.preprocess((v) => (v === '' ? null : v), z.enum(['a_emitir', 'emitida', 'cancelada']).nullable().optional()),
+    nfStatus: z.preprocess((v) => (v === '' ? null : v), z.enum(['a_emitir', 'processando', 'emitida', 'erro', 'cancelada']).nullable().optional()),
     nfNumero: zTexto, nfData: zData, nfLink: zTexto,
   }),
   select: `SELECT t.*, k.numero AS contrato_numero, c.nome AS cliente_nome, c.telefone AS cliente_telefone, c.contato AS cliente_contato,
@@ -50,7 +54,8 @@ export const defLancamentos: DefRecurso = {
     if (req.query.contrato) add('t.contrato_id', req.query.contrato);
     if (req.query.de) add('t.vencimento', req.query.de, '>=');
     if (req.query.ate) add('t.vencimento', req.query.ate, '<=');
-    if (req.query.nf === 'pendente') s += ` AND t.tipo = 'receita' AND t.status <> 'cancelado' AND COALESCE(t.nf_status, 'a_emitir') = 'a_emitir' AND t.categoria <> 'comissao'`;
+    if (req.query.nfStatus) add('t.nf_status', req.query.nfStatus);
+    if (req.query.nf === 'pendente') s += ` AND t.tipo = 'receita' AND t.status <> 'cancelado' AND COALESCE(t.nf_status, 'a_emitir') IN ('a_emitir', 'processando', 'erro', 'cancelada') AND t.categoria <> 'comissao'`;
     return s;
   },
 };
@@ -83,6 +88,27 @@ export const rotasLancamentos = rotasCrud(defLancamentos, (r) => {
   r.post('/:id/nf', editar('lancamentos'), async (req, res) => {
     const d = validar(z.object({ numero: zTextoObrig, data: zDataObrig, link: zTexto }), req.body);
     res.json(await salvar(defLancamentos, req.ctx!, { nfStatus: 'emitida', nfNumero: d.numero, nfData: d.data, nfLink: d.link }, String(req.params.id)));
+  });
+
+  /* ---- nota fiscal automática ---- */
+  r.post('/:id/nf/emitir', editar('lancamentos'), async (req, res) => {
+    const ctx = req.ctx!;
+    const out = await emitirNota(ctx.empresaId, String(req.params.id));
+    const l = await buscar<any>(pool, defLancamentos, ctx.empresaId, String(req.params.id));
+    await registrar(pool, ctx, out.status === 'erro' ? 'tentou emitir nota' : 'emitiu nota', 'lancamentos', l, { rotulo: l.descricao, contratoId: l.contratoId });
+    res.json({ ...out, lancamento: l });
+  });
+  r.post('/:id/nf/consultar', ler('lancamentos'), async (req, res) => {
+    const out = await consultarNota(req.ctx!.empresaId, String(req.params.id));
+    res.json({ ...out, lancamento: await buscar(pool, defLancamentos, req.ctx!.empresaId, String(req.params.id)) });
+  });
+  r.post('/:id/nf/cancelar', editar('lancamentos'), async (req, res) => {
+    const ctx = req.ctx!;
+    const { justificativa } = validar(z.object({ justificativa: z.string().trim().min(15, 'a prefeitura exige pelo menos 15 caracteres') }), req.body);
+    const out = await cancelarNota(ctx.empresaId, String(req.params.id), justificativa);
+    const l = await buscar<any>(pool, defLancamentos, ctx.empresaId, String(req.params.id));
+    await registrar(pool, ctx, 'cancelou nota', 'lancamentos', l, { rotulo: `${l.descricao} · nota ${l.nfNumero}`, contratoId: l.contratoId });
+    res.json(out);
   });
 
   r.get('/:id/pix', ler('lancamentos'), async (req, res) => {
@@ -120,19 +146,39 @@ financeiro.get('/resumo', ler('lancamentos'), async (req, res) => {
   res.json({ ...t, semanas });
 });
 
+/** Como as notas são emitidas nesta empresa (para a tela do financeiro). */
+financeiro.get('/nf-config', ler('lancamentos'), async (req, res) => {
+  const n = await carregar(pool, req.ctx!.empresaId, 'nfse');
+  res.json({ provedor: n.provedor, automatica: n.config.automatica, diasAntes: n.config.diasAntes, ambiente: n.config.ambiente });
+});
+
 /** Fila de cobrança do dia, conforme a régua configurada. */
 financeiro.get('/cobrar', ler('lancamentos'), async (req, res) => {
   const ctx = req.ctx!;
   const abertas = await q<any>(pool, `${defLancamentos.select} WHERE t.empresa_id = $1 AND t.tipo = 'receita' AND t.status = 'aberto' AND t.categoria <> 'comissao' AND t.excluido_em IS NULL ORDER BY t.vencimento`, [ctx.empresaId]);
+  const { ativo, cfg } = await whatsappAtivo(pool, ctx.empresaId);
   const out = [];
   for (const f of abertas) {
     const { dias, etapa } = etapaCobranca(ctx.cfg.regua, f.vencimento);
     if (etapa == null) continue;
     const enviada = (f.cobrancas || []).some((cb: any) => cb.etapa === etapa);
     const msg = mensagemCobranca(ctx, f, etapa);
-    out.push({ lancamento: f, dias, etapa, enviada, mensagem: msg, whatsapp: f.clienteTelefone ? linkWhatsApp(f.clienteTelefone, msg) : null });
+    out.push({ lancamento: f, dias, etapa, enviada, mensagem: msg, whatsapp: f.clienteTelefone ? linkWhatsApp(f.clienteTelefone, msg) : null, envioAutomatico: ativo ? cfg.provedor : null, automatico: ativo && cfg.config.automatico });
   }
   res.json(out);
+});
+
+/** Envia a cobrança pelo WhatsApp automático (Z-API ou simulado). */
+financeiro.post('/cobrancas/enviar', editar('lancamentos'), async (req, res) => {
+  const ctx = req.ctx!;
+  const d = validar(z.object({ lancamentoId: z.string().uuid(), etapa: z.number().int() }), req.body);
+  const f = await buscar<any>(pool, defLancamentos, ctx.empresaId, d.lancamentoId);
+  if (!f) throw naoEncontrado('Lançamento');
+  if (!f.clienteTelefone) throw invalido('O cliente não tem telefone cadastrado.');
+  const r = await enviarCobranca(ctx, f, d.etapa, false);
+  if (!r.ok) throw invalido(r.erro || 'Não foi possível enviar.');
+  await registrar(pool, ctx, 'enviou cobrança', 'lancamentos', f, { rotulo: `${f.descricao} · WhatsApp${r.status === 'simulada' ? ' (simulado)' : ''}`, contratoId: f.contratoId });
+  res.json(r);
 });
 
 financeiro.post('/cobrancas', editar('lancamentos'), async (req, res) => {

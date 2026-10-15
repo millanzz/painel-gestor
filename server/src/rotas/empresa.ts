@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { addDays, mesclarConfig, PERFIS_LISTA, PLANOS, today } from '@shared';
+import { addDays, mesclarConfig, PERFIS, PERFIS_LISTA, PLANOS, today, type Perfil } from '@shared';
+import { env } from '../env';
+import { enviarEmail, modelo } from '../integracoes/email';
 import { registrar } from '../auditoria';
 import { editar, situacaoPlano, soAdmin } from '../contexto';
 import { rotasCrud, type DefRecurso } from '../crud';
@@ -88,6 +90,14 @@ export const defMembros: DefRecurso = {
       if (!n.n) throw invalido('A empresa precisa de pelo menos um administrador.');
     }
     if (!anterior) (d as any).convite = novoConvite(d.nome);
+  },
+  /** Convite novo com e-mail: manda o link de acesso (sem segurar a resposta). */
+  async depois(_c, ctx, m, anterior) {
+    if (anterior || !m.email || !m.convite) return;
+    const url = `${env.appUrl}/entrar?convite=${m.convite}`;
+    const quem = m.perfil === 'cliente' ? 'acompanhar suas campanhas, fotos e pagamentos' : `usar o sistema como ${PERFIS[m.perfil as Perfil].nome.toLowerCase()}`;
+    const e = modelo(`Convite de ${ctx.cfg.empresa.razao || 'exibidora'}`, [`Olá, ${String(m.nome).split(' ')[0]}.`, `${ctx.autorNome} convidou você para ${quem} no Painel Gestor.`, `Seu código de convite é ${m.convite}.`], { texto: 'Criar meu acesso', url });
+    setImmediate(() => { enviarEmail({ para: m.email, assunto: `Convite para o Painel Gestor · ${ctx.cfg.empresa.razao}`, empresaId: ctx.empresaId, ...e }); });
   },
   async aoExcluir(c, ctx, m) {
     if (m.perfil === 'admin') {

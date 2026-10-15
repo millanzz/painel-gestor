@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
+import { reportarErro } from './monitoramento';
 
 export class ErroApi extends Error {
   constructor(public status: number, message: string, public detalhe?: unknown) { super(message); }
@@ -19,13 +20,14 @@ export function validar<S extends z.ZodTypeAny>(schema: S, dados: unknown): z.in
   return r.data;
 }
 
-export function tratarErros(err: any, _req: Request, res: Response, _next: NextFunction) {
+export function tratarErros(err: any, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ErroApi) return res.status(err.status).json({ erro: err.message, detalhe: err.detalhe });
   if (err?.code === '23505') return res.status(409).json({ erro: 'Já existe um registro com este código ou número.' });
   if (err?.code === '23503') return res.status(409).json({ erro: 'Este registro está ligado a outros e não pode ser alterado assim.' });
   if (err?.code === '23514') return res.status(422).json({ erro: 'Algum valor está fora do permitido.' });
   if (err?.type === 'entity.too.large') return res.status(413).json({ erro: 'Arquivo grande demais.' });
   console.error(err);
+  reportarErro(err, { metodo: req.method, rota: req.originalUrl, empresa: req.ctx?.empresaId, perfil: req.ctx?.perfil });
   res.status(500).json({ erro: 'Algo deu errado do nosso lado. Tente de novo.' });
 }
 

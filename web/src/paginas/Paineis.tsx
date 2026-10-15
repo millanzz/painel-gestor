@@ -7,6 +7,7 @@ import { useSessao } from '../sessao';
 import { Abas, Badge, Cabecalho, Campo, Carregando, Dialogo, ErroCaixa, useAvisos, Vazio } from '../ui/base';
 import { FormGaveta, type DefCampo } from '../ui/formulario';
 import { Icone } from '../ui/icones';
+import { EscolherPonto } from '../ui/Mapa';
 
 const camposEstrutura: DefCampo[] = [
   { k: 'codigo', rotulo: 'Código do ponto', obrig: true, ajuda: 'Ex.: E-009' },
@@ -136,7 +137,10 @@ export default function Paineis() {
         campos={camposFace} fechar={fecharTudo} invalidar={['estruturas', 'agenda']} podeExcluir={admin} somenteLeitura={!edita('paineis')} />}
       {estAberta && <FormGaveta titulo={estAberta.id ? `Ponto ${estAberta.codigo}` : 'Novo ponto'} rota="/estruturas" registro={estAberta.id ? estAberta : null} padrao={estAberta}
         campos={admin ? camposEstrutura : camposEstrutura.filter((c) => !c.k.startsWith('loc') && c.k !== 's2')} fechar={fecharTudo} invalidar={['paineis', 'recorrencias']} podeExcluir={admin} somenteLeitura={!edita('estruturas')}
-        extra={estAberta.id && <FotosPonto e={estAberta} />} />}
+        extra={(v, mudar) => <>
+          <EscolherPonto lat={v.lat} lng={v.lng} endereco={[v.endereco, v.bairro, v.cidade, v.uf].filter(Boolean).join(', ')} mudar={(la, lo) => { mudar('lat', la); mudar('lng', lo); }} />
+          {estAberta.id && <FotosPonto e={estAberta} />}
+        </>} />}
       {reajuste && <Reajuste ids={[...sel]} fechar={() => setReajuste(false)} aoFim={() => setSel(new Set())} />}
     </>
   );

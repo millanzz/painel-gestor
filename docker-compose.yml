@@ -28,8 +28,15 @@ services:
       JWT_SECRET: troque-este-segredo-em-producao
       NODE_ENV: production
       PORT: 3000
+      APP_URL: http://localhost:3000
+      STORAGE: disco
+      UPLOAD_DIR: /app/uploads
+      # RESEND_API_KEY, S3_*, SENTRY_DSN: veja .env.example
     ports:
       - "3000:3000"
+    volumes:
+      - uploads:/app/uploads
 
 volumes:
   pgdata:
+  uploads:

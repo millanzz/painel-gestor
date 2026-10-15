@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useSessao } from '../sessao';
 import { Badge, Cabecalho, Carregando, Etiqueta, Gaveta, Seg, useAvisos, Vazio } from '../ui/base';
 import { FormGaveta, type DefCampo } from '../ui/formulario';
+import { preencherPeloCep } from '../ui/cep';
 import { Icone } from '../ui/icones';
 
 export const camposCliente: DefCampo[] = [
@@ -15,8 +16,17 @@ export const camposCliente: DefCampo[] = [
   { k: 'contato', rotulo: 'Pessoa de contato' },
   { k: 'telefone', rotulo: 'Telefone / WhatsApp', tipo: 'tel' },
   { k: 'email', rotulo: 'E-mail', tipo: 'email' },
-  { k: 'cidade', rotulo: 'Cidade' },
   { k: 'comissao', rotulo: 'Comissão da agência (%)', tipo: 'numero', se: (v) => v.tipo === 'agencia', ajuda: 'Descontada do valor do contrato e lançada como despesa quando a parcela é paga.' },
+  { k: 's-end', rotulo: 'Endereço para a nota fiscal', tipo: 'secao' },
+  { k: 'cep', rotulo: 'CEP', ajuda: 'Preenche o endereço sozinho.' },
+  { k: 'inscricaoMunicipal', rotulo: 'Inscrição municipal' },
+  { k: 'logradouro', rotulo: 'Rua / avenida', largo: true },
+  { k: 'numero', rotulo: 'Número' },
+  { k: 'complemento', rotulo: 'Complemento' },
+  { k: 'bairro', rotulo: 'Bairro' },
+  { k: 'cidade', rotulo: 'Cidade' },
+  { k: 'uf', rotulo: 'UF' },
+  { k: 'codigoMunicipio', rotulo: 'Código IBGE do município', ajuda: 'Vem do CEP.' },
   { k: 'obs', rotulo: 'Observações', tipo: 'area', largo: true },
 ];
 
@@ -61,7 +71,7 @@ export default function Clientes() {
         )}
       </div>
       {aberto && <DetalheCliente id={aberto} fechar={() => setParams({})} editar={(c) => { setParams({}); setForm(c); }} />}
-      {form && <FormGaveta titulo={form.id ? 'Editar cliente' : 'Novo cliente'} rota="/clientes" registro={form.id ? form : null} padrao={form} campos={camposCliente} fechar={() => setForm(null)} podeExcluir={edita('clientes')} />}
+      {form && <FormGaveta titulo={form.id ? 'Editar cliente' : 'Novo cliente'} rota="/clientes" registro={form.id ? form : null} padrao={form} campos={camposCliente} fechar={() => setForm(null)} podeExcluir={edita('clientes')} aoMudar={preencherPeloCep} />}
     </>
   );
 }

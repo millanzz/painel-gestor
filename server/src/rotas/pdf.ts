@@ -6,6 +6,7 @@ import { fdate, money, pct, tabelaPeriodo, TIPO_LBL, VERIFICACAO } from '@shared
 import type { Ctx } from '../contexto';
 import { pool, q, q1 } from '../db';
 import { mapaPrecos, resumoContrato } from '../dominio';
+import { ler } from '../integracoes/armazenamento';
 import { ErroApi, naoEncontrado } from '../http';
 
 export const pdf = Router();
@@ -154,7 +155,7 @@ pdf.get('/contratos/:id/:doc', async (req, res) => {
 /** Relatório de veiculação: fotos conferidas no local, uma por face. */
 async function veiculacao(res: Response, ctx: Ctx, k: any) {
   const fotos = await q<any>(pool,
-    `SELECT f.*, p.codigo, e.endereco, e.bairro, e.cidade, a.dados, a.mime FROM comprovacoes f JOIN paineis p ON p.id = f.painel_id
+    `SELECT f.*, p.codigo, e.endereco, e.bairro, e.cidade, a.dados, a.chave, a.armazenamento, a.mime FROM comprovacoes f JOIN paineis p ON p.id = f.painel_id
        LEFT JOIN estruturas e ON e.id = p.estrutura_id JOIN arquivos a ON a.id = f.arquivo_id
       WHERE f.contrato_id = $1 AND f.excluido_em IS NULL AND f.tipo <> 'retirada' ORDER BY p.codigo, f.criado_em`, [k.id]);
   const doc = iniciar(res, `veiculacao-${k.numero}`);
@@ -165,7 +166,7 @@ async function veiculacao(res: Response, ctx: Ctx, k: any) {
     if (y + 270 > 790) { doc.addPage(); y = 48; col = 0; }
     const x = 48 + col * 256;
     try {
-      if (/jpe?g|png/.test(f.mime)) doc.image(f.dados, x, y, { fit: [243, 182], align: 'center', valign: 'center' });
+      if (/jpe?g|png/.test(f.mime)) doc.image(await ler(f), x, y, { fit: [243, 182], align: 'center', valign: 'center' });
       else doc.rect(x, y, 243, 182).fillColor('#F3F4F6').fill();
     } catch { doc.rect(x, y, 243, 182).fillColor('#F3F4F6').fill(); }
     const v = VERIFICACAO[f.verificacao];

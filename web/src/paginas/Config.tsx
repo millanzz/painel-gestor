@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { criarCalendario, fdate, money, PLANOS, type ConfigEmpresa } from '@shared';
@@ -6,8 +6,9 @@ import { api } from '../api';
 import { useSessao } from '../sessao';
 import { abrirArquivo, Abas, Badge, Cabecalho, Campo, ErroCaixa, useAvisos } from '../ui/base';
 import { Icone } from '../ui/icones';
+import { buscarCep } from '../ui/cep';
 
-type Aba = 'empresa' | 'comercial' | 'financeiro' | 'calendario' | 'plano' | 'importar' | 'conta';
+type Aba = 'empresa' | 'comercial' | 'financeiro' | 'integracoes' | 'calendario' | 'plano' | 'importar' | 'conta';
 
 export default function Config() {
   const [params, setParams] = useSearchParams();
@@ -32,7 +33,7 @@ export default function Config() {
   return (
     <>
       <Cabecalho titulo="Configurações" sub={empresa?.nome} />
-      <Abas valor={aba} onChange={(a) => setParams({ aba: a })} opcoes={[['empresa', 'Empresa'], ['comercial', 'Regras comerciais'], ['financeiro', 'Financeiro'], ['calendario', 'Calendário'], ['plano', 'Plano'], ['importar', 'Importar'], ['conta', 'Dados e conta']]} />
+      <Abas valor={aba} onChange={(a) => setParams({ aba: a })} opcoes={[['empresa', 'Empresa'], ['comercial', 'Regras comerciais'], ['financeiro', 'Financeiro'], ['integracoes', 'Integrações'], ['calendario', 'Calendário'], ['plano', 'Plano'], ['importar', 'Importar'], ['conta', 'Dados e conta']]} />
       <div className="miolo" style={{ maxWidth: 800 }}>
         <ErroCaixa erro={erro} />
         {aba === 'empresa' && (
@@ -89,6 +90,7 @@ export default function Config() {
             <Salvar blocos={['pix', 'regua', 'bloqueioDias', 'nfse']} />
           </section>
         )}
+        {aba === 'integracoes' && <Integracoes />}
         {aba === 'calendario' && <Calendario cfg={cfg} mudar={(c) => set('calendario', c)} salvar={() => salvar(['calendario'])} />}
         {aba === 'plano' && <Plano />}
         {aba === 'importar' && <Importar />}
@@ -229,6 +231,117 @@ function Conta() {
           <Campo rotulo="Nova senha" ajuda="Pelo menos 8 caracteres."><input className="entrada" type="password" autoComplete="new-password" value={v.nova} onChange={(e) => setV({ ...v, nova: e.target.value })} /></Campo>
         </div>
         <button className="btn btn-sec" style={{ alignSelf: 'flex-start' }} disabled={!v.atual || v.nova.length < 8} onClick={trocar}>Trocar senha</button>
+      </div>
+    </section>
+  );
+}
+
+function Integracoes() {
+  const qc = useQueryClient();
+  const { avisar } = useAvisos();
+  const q = useQuery({ queryKey: ['integracoes'], queryFn: () => api.get('/integracoes') });
+  const [w, setW] = useState<any>(null);
+  const [n, setN] = useState<any>(null);
+  const [tel, setTel] = useState('');
+  const [cep, setCep] = useState('');
+  const [erro, setErro] = useState<unknown>(null);
+  useEffect(() => { if (q.data) { setW({ ...q.data.whatsapp, segredos: {} }); setN({ ...q.data.nfse, segredos: {} }); } }, [q.data]);
+  if (!w || !n) return <p className="t2">Carregando…</p>;
+  const wc = (k: string, v: any) => setW({ ...w, config: { ...w.config, [k]: v } });
+  const ws = (k: string, v: string) => setW({ ...w, segredos: { ...w.segredos, [k]: v } });
+  const nc = (k: string, v: any) => setN({ ...n, config: { ...n.config, [k]: v } });
+  const salvar = async (tipo: 'whatsapp' | 'nfse') => {
+    setErro(null);
+    const d = tipo === 'whatsapp' ? w : n;
+    try { await api.put(`/integracoes/${tipo}`, { provedor: d.provedor, config: d.config, segredos: d.segredos }); await qc.invalidateQueries({ queryKey: ['integracoes'] }); qc.invalidateQueries({ queryKey: ['nf-config'] }); qc.invalidateQueries({ queryKey: ['lancamentos'] }); avisar('Integração salva.'); }
+    catch (x) { setErro(x); }
+  };
+  const testar = async () => {
+    try { const r = await api.post('/integracoes/whatsapp/teste', { telefone: tel }); avisar(r.status === 'simulada' ? 'Teste registrado (modo simulado).' : 'Mensagem de teste enviada.'); qc.invalidateQueries({ queryKey: ['mensagens'] }); }
+    catch (x) { avisar((x as Error).message, true); }
+  };
+  const rodar = async () => {
+    try { const r = await api.post('/integracoes/rodar'); avisar(`${r.cobrancas} cobrança(s) e ${r.notas} nota(s) processadas agora.`); qc.invalidateQueries(); }
+    catch (x) { avisar((x as Error).message, true); }
+  };
+  const ibge = async () => { const e = await buscarCep(cep); if (e) { nc('codigoMunicipio', e.codigoMunicipio); avisar(`${e.cidade}/${e.uf}: ${e.codigoMunicipio}`); } else avisar('CEP não encontrado.', true); };
+  const seg = (v: string, on: (x: string) => void, ph: string) => <input className="entrada mono" type="password" autoComplete="off" value={v ?? ''} placeholder={ph || 'não configurado'} onChange={(e) => on(e.target.value)} />;
+  return (
+    <section className="pilha g-400">
+      <ErroCaixa erro={erro} />
+      <div className="card pp pilha g-200">
+        <div className="pilha g-050"><span className="h-sec">WhatsApp</span><span className="xs t2">Cobranças da régua, aviso de campanha no ar e mensagens de teste saem pelo número da empresa.</span></div>
+        <div className="seg" role="group" aria-label="Provedor de WhatsApp">
+          {[['desligado', 'Desligado'], ['simulado', 'Simulado'], ['zapi', 'Z-API']].map(([v, l]) => <button key={v} aria-pressed={w.provedor === v} onClick={() => setW({ ...w, provedor: v })}>{l}</button>)}
+        </div>
+        {w.provedor === 'desligado' && <p className="sm t2">O botão Enviar abre o WhatsApp do seu celular ou computador com a mensagem pronta.</p>}
+        {w.provedor === 'simulado' && <p className="sm t2">As mensagens ficam registradas no histórico, sem sair de verdade. Bom para demonstrar e treinar a equipe.</p>}
+        {w.provedor === 'zapi' && (
+          <div className="form">
+            <Campo rotulo="ID da instância">{seg(w.segredos.instancia, (x) => ws('instancia', x), q.data.whatsapp.segredos.instancia)}</Campo>
+            <Campo rotulo="Token da instância">{seg(w.segredos.token, (x) => ws('token', x), q.data.whatsapp.segredos.token)}</Campo>
+            <Campo rotulo="Client-Token (segurança da conta)" className="largo" ajuda="Em z-api.io → Segurança. Deixe em branco para manter o salvo.">{seg(w.segredos.clientToken, (x) => ws('clientToken', x), q.data.whatsapp.segredos.clientToken)}</Campo>
+          </div>
+        )}
+        {w.provedor !== 'desligado' && <>
+          <label className="check"><input type="checkbox" checked={!!w.config.automatico} onChange={(e) => wc('automatico', e.target.checked)} />Enviar as cobranças da régua sozinho</label>
+          {w.config.automatico && <div className="linha g-100 xs">Entre <input className="entrada" type="number" min={0} max={23} style={{ width: 72 }} value={w.config.horaIni} onChange={(e) => wc('horaIni', Number(e.target.value))} /> e <input className="entrada" type="number" min={1} max={24} style={{ width: 72 }} value={w.config.horaFim} onChange={(e) => wc('horaFim', Number(e.target.value))} /> horas (horário de Brasília)</div>}
+          <label className="check"><input type="checkbox" checked={!!w.config.avisarFoto} onChange={(e) => wc('avisarFoto', e.target.checked)} />Avisar o anunciante quando a campanha entrar no ar (primeira foto conferida de cada face)</label>
+        </>}
+        <div className="linha wrap g-100">
+          <button className="btn btn-pri" onClick={() => salvar('whatsapp')}>Salvar WhatsApp</button>
+          {q.data.whatsapp.provedor !== 'desligado' && <>
+            <input className="entrada" style={{ width: 200 }} placeholder="(11) 99999-0000" value={tel} onChange={(e) => setTel(e.target.value)} aria-label="Telefone para teste" />
+            <button className="btn btn-sec" disabled={tel.replace(/\D/g, '').length < 10} onClick={testar}>Enviar teste</button>
+          </>}
+        </div>
+      </div>
+
+      <div className="card pp pilha g-200">
+        <div className="pilha g-050"><span className="h-sec">Nota fiscal de serviço (NFS-e)</span><span className="xs t2">Emissão direto do sistema pela Focus NFe, que fala com a prefeitura. Alíquota, item da lista e descrição ficam na aba Financeiro.</span></div>
+        <div className="seg" role="group" aria-label="Emissão de nota">
+          {[['manual', 'Manual'], ['simulado', 'Simulado'], ['focus', 'Focus NFe']].map(([v, l]) => <button key={v} aria-pressed={n.provedor === v} onClick={() => setN({ ...n, provedor: v })}>{l}</button>)}
+        </div>
+        {n.provedor === 'manual' && <p className="sm t2">Você emite no site da prefeitura e registra o número no sistema.</p>}
+        {n.provedor === 'simulado' && <p className="sm t2">Gera números de teste (série 9000), sem valor fiscal. Serve para demonstrar o fluxo completo.</p>}
+        {n.provedor !== 'manual' && <>
+          <div className="form">
+            {n.provedor === 'focus' && <>
+              <Campo rotulo="Token da Focus NFe" ajuda="Painel da Focus → sua empresa → Tokens.">{seg(n.segredos.token, (x) => setN({ ...n, segredos: { token: x } }), q.data.nfse.segredos.token)}</Campo>
+              <Campo rotulo="Ambiente"><select className="entrada" value={n.config.ambiente} onChange={(e) => nc('ambiente', e.target.value)}><option value="homologacao">Homologação (teste)</option><option value="producao">Produção</option></select></Campo>
+            </>}
+            <Campo rotulo="Inscrição municipal da empresa"><input className="entrada" value={n.config.inscricaoMunicipal} onChange={(e) => nc('inscricaoMunicipal', e.target.value)} /></Campo>
+            <Campo rotulo="Código IBGE do município" ajuda={<span className="linha g-050">Pelo CEP: <input className="entrada" style={{ width: 110, height: 28 }} value={cep} onChange={(e) => setCep(e.target.value)} placeholder="CEP" /> <button type="button" className="btn btn-txt btn-sm" onClick={ibge}>Buscar</button></span>}>
+              <input className="entrada mono" value={n.config.codigoMunicipio} onChange={(e) => nc('codigoMunicipio', e.target.value)} maxLength={7} />
+            </Campo>
+            <Campo rotulo="Código tributário do município (se a prefeitura pedir)"><input className="entrada" value={n.config.codigoTributarioMunicipio} onChange={(e) => nc('codigoTributarioMunicipio', e.target.value)} /></Campo>
+            <Campo rotulo="Regime especial"><select className="entrada" value={n.config.regimeEspecial ?? ''} onChange={(e) => nc('regimeEspecial', e.target.value ? Number(e.target.value) : null)}>
+              <option value="">Nenhum</option><option value={1}>1 · Microempresa municipal</option><option value={2}>2 · Estimativa</option><option value={3}>3 · Sociedade de profissionais</option><option value={4}>4 · Cooperativa</option><option value={5}>5 · MEI</option><option value={6}>6 · ME/EPP do Simples Nacional</option></select></Campo>
+            <label className="check"><input type="checkbox" checked={!!n.config.optanteSimples} onChange={(e) => nc('optanteSimples', e.target.checked)} />Optante pelo Simples Nacional</label>
+            <label className="check"><input type="checkbox" checked={!!n.config.issRetido} onChange={(e) => nc('issRetido', e.target.checked)} />ISS retido pelo tomador</label>
+            <Campo rotulo="Quando emitir" className="largo"><select className="entrada" value={n.config.automatica} onChange={(e) => nc('automatica', e.target.value)}>
+              <option value="manual">Quando eu clicar em Emitir</option><option value="ao_vencer">Sozinho, antes do vencimento da parcela</option><option value="ao_pagar">Sozinho, quando a parcela for paga</option></select></Campo>
+            {n.config.automatica === 'ao_vencer' && <Campo rotulo="Dias antes do vencimento"><input className="entrada" type="number" min={0} max={30} value={n.config.diasAntes} onChange={(e) => nc('diasAntes', Number(e.target.value))} /></Campo>}
+          </div>
+          {q.data.nfse.pendencias?.length > 0 && <div className="aviso-linha warn"><Icone n="alerta" /><div>Falta para emitir: {q.data.nfse.pendencias.join('; ')}.</div></div>}
+          {n.provedor === 'focus' && (
+            <div className="pilha g-050">
+              <span className="xs" style={{ fontWeight: 500 }}>Endereço de retorno (gatilho) para cadastrar na Focus NFe</span>
+              <div className="linha g-100"><code className="mono xs" style={{ background: 'var(--c-sunken)', padding: '6px 10px', borderRadius: 6, wordBreak: 'break-all', flex: 1 }}>{q.data.nfse.webhook}</code>
+                <button className="btn btn-sec btn-sm" onClick={() => { navigator.clipboard?.writeText(q.data.nfse.webhook); avisar('Endereço copiado.'); }}><Icone n="copiar" /></button></div>
+              <span className="sm t2">Com ele, a nota aparece como emitida assim que a prefeitura autoriza. Sem ele, o sistema confere de hora em hora.</span>
+            </div>
+          )}
+        </>}
+        <div className="linha wrap g-100">
+          <button className="btn btn-pri" onClick={() => salvar('nfse')}>Salvar nota fiscal</button>
+          {(q.data.whatsapp.config.automatico || q.data.nfse.config.automatica !== 'manual') && <button className="btn btn-sec" onClick={rodar}>Rodar automações agora</button>}
+        </div>
+      </div>
+
+      <div className="card pp pilha g-100">
+        <span className="h-sec">E-mail, arquivos e monitoramento</span>
+        <p className="xs t2">Configurados no servidor (variáveis de ambiente), valem para todas as empresas: envio de e-mail pelo Resend (recuperação de senha e convites), fotos no Cloudflare R2 ou Amazon S3, e erros no Sentry. Veja o README.</p>
       </div>
     </section>
   );

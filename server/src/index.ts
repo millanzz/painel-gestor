@@ -8,6 +8,7 @@ import { pool } from './db';
 import { rotinas } from './dominio';
 import { env } from './env';
 import { tratarErros } from './http';
+import { iniciarMonitoramento } from './monitoramento';
 import { rotasCrud } from './crud';
 import { agenda } from './rotas/agenda';
 import { rotasArtes } from './rotas/artes';
@@ -21,6 +22,8 @@ import { financeiro, rotasLancamentos } from './rotas/financeiro';
 import { importacao } from './rotas/importacao';
 import { inicio } from './rotas/inicio';
 import { pdf } from './rotas/pdf';
+import { integracoes, webhooks } from './rotas/integracoes';
+import { cobrancasAutomaticas, notasAutomaticas } from './integracoes/automacoes';
 import { portal } from './rotas/portal';
 import { relatorios } from './rotas/relatorios';
 import { rotasReservas } from './rotas/reservas';
@@ -29,6 +32,7 @@ import { validar } from './http';
 import { z } from 'zod';
 
 export function criarApp() {
+  iniciarMonitoramento();
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -41,6 +45,7 @@ export function criarApp() {
   });
 
   app.use('/api/auth', auth);
+  app.use('/api/webhooks', webhooks);
 
   // Tudo abaixo exige usuário logado com acesso à empresa ativa.
   const api = express.Router();
@@ -76,6 +81,7 @@ export function criarApp() {
   api.use('/auditoria', auditoria);
   api.use('/importacao', importacao);
   api.use('/pdf', pdf);
+  api.use('/integracoes', integracoes);
   app.use('/api', api);
   app.use('/api', (_req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));
 
@@ -95,7 +101,16 @@ const ehPrincipal = process.argv[1] && fileURLToPath(import.meta.url) === path.r
 if (ehPrincipal) {
   const app = criarApp();
   app.listen(env.port, () => console.log(`Painel Gestor rodando em http://localhost:${env.port}`));
-  const rodar = () => rotinas(pool).then((n) => n && console.log(`[rotinas] ${n} opção(ões) vencida(s) liberada(s)`)).catch((e) => console.error('[rotinas]', e.message));
+  const rodar = async () => {
+    try {
+      const n = await rotinas(pool);
+      if (n) console.log(`[rotinas] ${n} opção(ões) vencida(s) liberada(s)`);
+      const c = await cobrancasAutomaticas();
+      if (c) console.log(`[rotinas] ${c} cobrança(s) enviada(s) pelo WhatsApp`);
+      const nf = await notasAutomaticas();
+      if (nf) console.log(`[rotinas] ${nf} nota(s) fiscal(is) emitida(s)`);
+    } catch (e: any) { console.error('[rotinas]', e.message); }
+  };
   rodar();
   setInterval(rodar, 60 * 60 * 1000);
 }

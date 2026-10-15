@@ -60,17 +60,22 @@ export function GradeCampos({ campos, valores, mudar }: { campos: DefCampo[]; va
  * registro e atualiza as listas indicadas.
  */
 export function FormGaveta({
-  titulo, rota, registro, campos, fechar, invalidar = [], padrao = {}, extra, aoSalvar, podeExcluir, somenteLeitura,
+  titulo, rota, registro, campos, fechar, invalidar = [], padrao = {}, extra, aoSalvar, podeExcluir, somenteLeitura, aoMudar,
 }: {
   titulo: string; rota: string; registro?: Record<string, any> | null; campos: DefCampo[]; fechar: () => void;
-  invalidar?: string[]; padrao?: Record<string, any>; extra?: ReactNode; aoSalvar?: (r: any) => void; podeExcluir?: boolean; somenteLeitura?: boolean;
+  invalidar?: string[]; padrao?: Record<string, any>; aoSalvar?: (r: any) => void; podeExcluir?: boolean; somenteLeitura?: boolean;
+  /** Conteúdo extra; como função, recebe os valores atuais e como mudá-los. */
+  extra?: ReactNode | ((v: Record<string, any>, mudar: (k: string, val: any) => void) => ReactNode);
+  /** Efeito ao mudar um campo (ex.: buscar o endereço pelo CEP). */
+  aoMudar?: (k: string, val: any, v: Record<string, any>, mudar: (k: string, val: any) => void) => void;
 }) {
   const qc = useQueryClient();
   const { avisar, confirmar } = useAvisos();
   const [v, setV] = useState<Record<string, any>>(() => ({ ...padrao, ...(registro || {}) }));
   const [erro, setErro] = useState<unknown>(null);
   const [salvando, setSalvando] = useState(false);
-  const mudar = (k: string, val: any) => setV((o) => ({ ...o, [k]: val }));
+  const definir = (k: string, val: any) => setV((o) => ({ ...o, [k]: val }));
+  const mudar = (k: string, val: any) => { definir(k, val); aoMudar?.(k, val, { ...v, [k]: val }, definir); };
 
   const atualizar = () => [rota.split('/')[1], ...invalidar].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
 
@@ -109,7 +114,7 @@ export function FormGaveta({
         <fieldset disabled={somenteLeitura} style={{ border: 0, padding: 0, margin: 0 }}>
           <GradeCampos campos={campos} valores={v} mudar={mudar} />
         </fieldset>
-        {extra}
+        {typeof extra === 'function' ? extra(v, definir) : extra}
       </form>
     </Gaveta>
   );

@@ -27,6 +27,7 @@ export const api = {
   get: <T = any>(url: string) => req<T>('GET', url),
   post: <T = any>(url: string, corpo: unknown = {}) => req<T>('POST', url, corpo),
   patch: <T = any>(url: string, corpo: unknown) => req<T>('PATCH', url, corpo),
+  put: <T = any>(url: string, corpo: unknown) => req<T>('PUT', url, corpo),
   del: <T = any>(url: string) => req<T>('DELETE', url),
   enviar: <T = any>(url: string, campos: Record<string, string | Blob | null | undefined>) => {
     const fd = new FormData();

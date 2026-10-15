@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Sessao } from '@shared';
 import { api } from '../api';
 import { useSessao } from '../sessao';
@@ -18,6 +18,8 @@ export default function Entrar() {
   const [v, setV] = useState({ nome: '', email: '', senha: '', empresa: '', convite: params.get('convite') || '' });
   const [erro, setErro] = useState<unknown>(null);
   const [enviando, setEnviando] = useState(false);
+  const [aceite, setAceite] = useState(false);
+  const [esqueci, setEsqueci] = useState<'nao' | 'form' | 'enviado'>('nao');
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV({ ...v, [k]: e.target.value });
 
   const concluir = (s: Sessao) => { qc.clear(); qc.setQueryData(['sessao'], s); nav('/', { replace: true }); };
@@ -33,10 +35,34 @@ export default function Entrar() {
         const s = await api.post<Sessao>('/auth/entrar', { email: v.email, senha: v.senha });
         if (!s.empresaId) { qc.setQueryData(['sessao'], s); setModo('cadastro'); } else concluir(s);
       } else {
-        concluir(await api.post('/auth/cadastro', { nome: v.nome, email: v.email, senha: v.senha, ...(modo === 'convite' ? { convite: v.convite } : { empresa: v.empresa }) }));
+        concluir(await api.post('/auth/cadastro', { nome: v.nome, email: v.email, senha: v.senha, aceiteTermos: aceite, ...(modo === 'convite' ? { convite: v.convite } : { empresa: v.empresa }) }));
       }
     } catch (x) { setErro(x); } finally { setEnviando(false); }
   };
+
+  const pedirLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEnviando(true); setErro(null);
+    try { await api.post('/auth/esqueci', { email: v.email }); setEsqueci('enviado'); } catch (x) { setErro(x); } finally { setEnviando(false); }
+  };
+
+  if (esqueci !== 'nao') return (
+    <div className="entrada-tela">
+      <form className="card entrada-card" onSubmit={pedirLink}>
+        <div className="pilha g-100">
+          <div className="linha g-100"><img src="/icone.svg" width={28} height={28} alt="" /><span className="h-card">Painel Gestor</span></div>
+          <h1 className="h-big" style={{ marginTop: 16 }}>Esqueci minha senha</h1>
+          <p className="t2">{esqueci === 'enviado' ? `Se houver uma conta com ${v.email}, você vai receber um link para criar uma nova senha. Ele vale por 1 hora.` : 'Informe o e-mail da sua conta. Enviamos um link para criar uma nova senha.'}</p>
+        </div>
+        <ErroCaixa erro={erro} />
+        {esqueci === 'form' && <>
+          <Campo rotulo="E-mail"><input className="entrada" type="email" value={v.email} onChange={set('email')} autoComplete="email" required autoFocus /></Campo>
+          <button className="btn btn-pri btn-lg" disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar link'}</button>
+        </>}
+        <button type="button" className="btn btn-txt" onClick={() => { setEsqueci('nao'); setErro(null); }}>Voltar para entrar</button>
+      </form>
+    </div>
+  );
 
   const titulo = logado ? (modo === 'convite' ? 'Entrar com um convite' : 'Criar uma empresa') : modo === 'entrar' ? 'Entrar' : modo === 'cadastro' ? 'Criar conta' : 'Aceitar convite';
   return (
@@ -68,8 +94,15 @@ export default function Entrar() {
           )}
           {modo === 'cadastro' && <Campo rotulo="Nome da exibidora"><input className="entrada" value={v.empresa} onChange={set('empresa')} required /></Campo>}
           {modo === 'convite' && <Campo rotulo="Código do convite"><input className="entrada mono" value={v.convite} onChange={set('convite')} placeholder="ANA-7K2P" required style={{ textTransform: 'uppercase' }} /></Campo>}
+          {!logado && modo !== 'entrar' && (
+            <label className="check xs" style={{ alignItems: 'flex-start' }}>
+              <input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} required style={{ marginTop: 2 }} />
+              <span>Li e aceito os <Link to="/termos" target="_blank">termos de uso</Link> e a <Link to="/privacidade" target="_blank">política de privacidade</Link>.</span>
+            </label>
+          )}
         </div>
         <button className="btn btn-pri btn-lg" disabled={enviando}>{enviando ? 'Aguarde…' : modo === 'entrar' && !logado ? 'Entrar' : 'Continuar'}</button>
+        {!logado && modo === 'entrar' && <button type="button" className="btn btn-txt" onClick={() => { setEsqueci('form'); setErro(null); }}>Esqueci minha senha</button>}
         {logado && sessao?.empresaId && <button type="button" className="btn btn-txt" onClick={() => nav('/')}>Voltar para {sessao.empresas.find((e) => e.id === sessao.empresaId)?.nome}</button>}
       </form>
     </div>

@@ -43,21 +43,45 @@ Ou com Docker: `docker compose --profile app up --build` (API + front + banco). 
 
 ---
 
+## Integrações
+
+Tudo funciona **sem nenhuma chave**: cada integração tem um modo simulado, que registra o que seria enviado e mostra o resultado na tela. É o modo do banco de exemplo, bom para apresentar o protótipo. Para ir para produção, preencha as chaves abaixo.
+
+| Integração | Onde configurar | Sem configuração |
+|---|---|---|
+| **E-mail** (recuperação de senha, convites) via [Resend](https://resend.com) | `RESEND_API_KEY` e `EMAIL_FROM` no `.env` (domínio verificado no Resend) | e-mail fica no histórico de mensagens e no log do servidor |
+| **Fotos e artes** em Amazon S3, Cloudflare R2 ou MinIO | `STORAGE=s3` e `S3_*` no `.env` | grava em disco (`UPLOAD_DIR`); no Docker, no volume `uploads` |
+| **Monitoramento de erros** com [Sentry](https://sentry.io) | `SENTRY_DSN` (API) e `VITE_SENTRY_DSN` no `web/.env` (front) | desligado |
+| **WhatsApp automático** via [Z-API](https://z-api.io) | Configurações → Integrações (instância, token e Client-Token), por empresa | mensagens simuladas, ou o botão abre o WhatsApp com o texto pronto |
+| **NFS-e automática** via [Focus NFe](https://focusnfe.com.br) | Configurações → Integrações (token, ambiente, inscrição municipal, código IBGE, item da lista de serviço) | notas simuladas, numeradas a partir de 9001 |
+| **Mapa** com Leaflet + OpenStreetMap | `VITE_MAPA_TILES` no `web/.env` para trocar o servidor de mapas | usa os tiles públicos do OSM |
+
+Detalhes:
+
+- **Fotos** são reduzidas para no máximo 1600 px (JPEG) depois que o GPS é lido. Fotos antigas gravadas no banco continuam abrindo.
+- **WhatsApp:** com "Enviar as cobranças da régua sozinho" ligado, a rotina horária manda as cobranças do dia dentro do horário escolhido (horário de Brasília) e o cliente recebe aviso quando a primeira foto da campanha é conferida. Todo envio fica no histórico em Dinheiro → Cobrar hoje.
+- **NFS-e:** a emissão pode ser manual, no vencimento (X dias antes) ou na baixa da parcela. Cadastre no Focus NFe o webhook mostrado na tela de Integrações (`/api/webhooks/nfse/<empresa>/<segredo>`) para receber a autorização na hora; sem ele, a rotina horária consulta as notas em processamento. O cliente precisa de CPF/CNPJ e endereço com código IBGE (o CEP preenche sozinho via ViaCEP). Teste primeiro no ambiente de homologação.
+- **Segredos** das integrações ficam por empresa no banco e só voltam mascarados para a tela.
+- **Termos de uso e política de privacidade** (`/termos`, `/privacidade`) são um modelo pensado para a LGPD: **revise com um advogado** e troque os dados da empresa antes de publicar. Quando a versão muda (`TERMOS_VERSAO` em `shared/src/constantes.ts`), todos aceitam de novo no próximo acesso.
+- Z-API, Focus NFe e S3 foram testados contra servidores falsos que imitam as APIs; faça um teste real em homologação antes de ligar para clientes.
+
+---
+
 ## O que o sistema faz
 
 | Área | Quem usa | Principais recursos |
 |---|---|---|
 | **Início** | todos os perfis internos | Ocupação da bissemana, vendido no ano, a receber, atrasado; **próximas ações** com o botão para resolver cada uma (opção vencendo, desconto para aprovar, material atrasado, licença vencendo, cobrança do dia, fila que liberou). |
-| **Agenda** | comercial, admin | Grade por bissemana (tape chart) agrupada por cidade, coluna de hoje, rodapé de ocupação, filtros, mapa simples; LED mostra cotas usadas por período; seleção de várias faces → **nova reserva** no painel lateral. |
+| **Agenda** | comercial, admin | Grade por bissemana (tape chart) agrupada por cidade, coluna de hoje, rodapé de ocupação, filtros, mapa real (Leaflet) com as faces coloridas por situação; LED mostra cotas usadas por período; seleção de várias faces → **nova reserva** no painel lateral. |
 | **Nova reserva** | comercial, admin | Duração em BIs ou datas livres, escolha da BI com marcação de temporada, disponibilidade em tempo real, fila para faces ocupadas, preço de tabela e desconto por volume; cria a proposta ou entra num contrato existente. |
 | **Vendas** | comercial, admin, financeiro | Proposta → aprovação (desconto acima do limite vai para o admin) → **PI** (confirma as faces, gera ordens de colagem/retirada e o acompanhamento de material) → encerrado; cancelamento com multa sobre o saldo não veiculado; renovação; troca de face; PDFs de proposta, PI e relatório de veiculação. |
 | **Material** | comercial, operação | Etapas da arte (aguardando → aprovação → gráfica → recebido), prazo antes da colagem, arquivo da arte. |
 | **Campo** | operação | Roteiro do dia pensado para o celular, próxima parada com rota no mapa, foto pela câmera: o servidor lê o GPS da foto (EXIF) e confere a distância até o ponto; a foto conclui a ordem de serviço e aparece no portal do cliente. OS com custo vira despesa da face. |
-| **Dinheiro** | financeiro, admin | Resumo e fluxo de 6 semanas; **cobrar hoje** pela régua (antes/no dia/depois do vencimento) com mensagem pronta no WhatsApp e PIX copia e cola; lançamentos; baixas geram comissão de vendedor e agência; despesas fixas mensais (aluguel do terreno entra sozinho a partir do ponto); notas fiscais; conciliação de extrato OFX/CSV. |
+| **Dinheiro** | financeiro, admin | Resumo e fluxo de 6 semanas; **cobrar hoje** pela régua (antes/no dia/depois do vencimento) com envio automático pelo WhatsApp (ou mensagem pronta) e PIX copia e cola; lançamentos; baixas geram comissão de vendedor e agência; despesas fixas mensais (aluguel do terreno entra sozinho a partir do ponto); emissão, consulta e cancelamento de NFS-e; conciliação de extrato OFX/CSV. |
 | **Painéis** | todos (edição: admin) | Pontos com licença da prefeitura e locação do terreno, faces com formato, medidas, preço por BI e cotas de LED, fotos do ponto, reajuste de preços em lote. |
 | **Clientes** | comercial, financeiro, admin | Anunciantes e agências (com comissão), situação de pagamentos, bloqueio por atraso, convite para o portal, anonimização (LGPD). |
 | **Relatórios** | comercial, financeiro, admin | Ocupação por mês/cidade/formato, vendas por vendedor e preço praticado, rentabilidade por face; exportação Excel/CSV. |
-| **Administração** | admin | Usuários e convites, configurações (empresa, regras comerciais, PIX, régua, NFS-e, calendário de bissemanas, plano), importação de planilhas com prévia, backup em JSON, auditoria com antes/depois e lixeira com restauração. |
+| **Administração** | admin | Usuários e convites, configurações (empresa, regras comerciais, PIX, régua, NFS-e, calendário de bissemanas, plano), importação de planilhas com prévia, backup em JSON, auditoria com antes/depois, lixeira com restauração e integrações (WhatsApp, NFS-e). |
 | **Portal do anunciante** | cliente | Campanha no ar com as fotos conferidas, propostas para aceitar, pagamentos com PIX, relatório de veiculação. Vê só o que é dele. |
 
 ---
@@ -93,7 +117,8 @@ web/src/
 - **Opção expira sozinha.** Uma rotina horária libera opções vencidas e encerra contratos cuja última face saiu do ar.
 - **Exclusão é lógica.** Tudo vai para a lixeira (`excluido_em`) e pode ser restaurado; a auditoria guarda quem fez, quando e o que mudou.
 - **Assinatura vencida = modo leitura.** O admin continua podendo acessar Configurações para escolher um plano. A cobrança da assinatura em si não está implementada (ver próximos passos).
-- **Fotos e artes no banco** (`bytea`), servidas só para quem tem acesso; o anunciante só abre arquivos das próprias campanhas.
+- **Fotos e artes fora do banco** (disco ou S3/R2), servidas pela API só para quem tem acesso; o anunciante só abre arquivos das próprias campanhas.
+- **Integrações atrás de uma camada própria** (`server/src/integracoes/`): trocar de provedor mexe em um arquivo só.
 - **Fontes servidas pelo próprio app** (IBM Plex via `@fontsource`), sem chamar o Google.
 
 ### Design
@@ -109,15 +134,13 @@ npm test          # recria os dados de exemplo e testa a API de ponta a ponta
 npm run typecheck
 ```
 
-Os testes cobrem login e isolamento entre empresas, permissões por perfil, conflito de reserva e cotas de LED, o fluxo proposta → desconto → PI → parcelas → baixa com comissão → cancelamento com multa, numeração, régua de cobrança com PIX, recorrências sem duplicar, conciliação, foto do campo concluindo a OS, portal do anunciante (inclusive acesso negado a arquivo de outro cliente), lixeira, auditoria, importação e convite.
+Os testes cobrem login e isolamento entre empresas, permissões por perfil, conflito de reserva e cotas de LED, o fluxo proposta → desconto → PI → parcelas → baixa com comissão → cancelamento com multa, numeração, régua de cobrança com PIX, recorrências sem duplicar, conciliação, foto do campo concluindo a OS, portal do anunciante (inclusive acesso negado a arquivo de outro cliente), lixeira, auditoria, importação e convite, aceite dos termos, recuperação de senha, armazenamento em S3, envio pelo WhatsApp, emissão/consulta/cancelamento de NFS-e com webhook e emissão automática na baixa.
 
 ---
 
 ## Próximos passos sugeridos
 
 - Cobrança da assinatura (Stripe, Pagar.me ou Asaas) ligada à rota `/api/empresa/plano`.
-- Emissão automática de NFS-e pela API da prefeitura ou de um agregador (hoje o sistema prepara os dados e registra o número).
-- Envio de WhatsApp pela API oficial (hoje abre a conversa com a mensagem pronta).
-- Armazenamento de fotos em S3/R2 quando o volume crescer.
-- Recuperação de senha por e-mail.
+- Testar Z-API e Focus NFe com contas reais em homologação e cadastrar o webhook.
+- Revisão jurídica dos termos de uso e da política de privacidade.
 - Marketplace para quem quer alugar painéis (pausado nesta versão).

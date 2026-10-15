@@ -90,4 +90,6 @@ export interface Sessao {
   perfil: Perfil | null;
   membroId: string | null;
   clienteId: string | null;
+  /** O usuário ainda não aceitou a versão atual dos termos. */
+  termosPendentes: boolean;
 }

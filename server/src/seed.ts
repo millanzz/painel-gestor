@@ -4,7 +4,7 @@
 import bcrypt from 'bcryptjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addDays, CONFIG_PADRAO, criarCalendario, today } from '@shared';
+import { addDays, CONFIG_PADRAO, criarCalendario, TERMOS_VERSAO, today } from '@shared';
 import { inserir, pool, q1, tx } from './db';
 import { sincronizarOS } from './dominio';
 import { migrar } from './migrate';
@@ -73,10 +73,10 @@ export async function seed() {
     /* clientes */
     const cli: Record<string, any> = {};
     for (const [k, d] of Object.entries({
-      rota: { nome: 'Rota Sul Veículos', tipo: 'anunciante', documento: '12.345.678/0001-90', contato: 'Marina Duarte', email: 'marketing@rotasul.exemplo', telefone: '(11) 94321-0000', cidade: 'São Bernardo do Campo' },
+      rota: { nome: 'Rota Sul Veículos', tipo: 'anunciante', documento: '12.345.678/0001-90', contato: 'Marina Duarte', email: 'marketing@rotasul.exemplo', telefone: '(11) 94321-0000', cidade: 'São Bernardo do Campo', cep: '09725-000', logradouro: 'Av. Kennedy', numero: '900', bairro: 'Jardim do Mar', uf: 'SP', codigoMunicipio: '3548708' },
       faro: { nome: 'Faro Comunicação', tipo: 'agencia', documento: '23.456.789/0001-01', contato: 'Diego Lima', email: 'midia@faro.exemplo', telefone: '(11) 94432-1100', comissao: 20, cidade: 'Santo André' },
-      bom: { nome: 'Supermercados Bom Preço ABC', tipo: 'anunciante', documento: '34.567.890/0001-12', contato: 'Paula Reis', email: 'compras@bompreco.exemplo', telefone: '(11) 94555-2200', cidade: 'Santo André' },
-      hor: { nome: 'Faculdade Horizonte', tipo: 'anunciante', documento: '45.678.901/0001-23', contato: 'Renato Alves', email: 'comunicacao@horizonte.exemplo', telefone: '(11) 94777-3300', cidade: 'São Caetano do Sul' },
+      bom: { nome: 'Supermercados Bom Preço ABC', tipo: 'anunciante', documento: '34.567.890/0001-12', contato: 'Paula Reis', email: 'compras@bompreco.exemplo', telefone: '(11) 94555-2200', cidade: 'Santo André', cep: '09015-000', logradouro: 'Rua das Figueiras', numero: '1200', bairro: 'Jardim', uf: 'SP', codigoMunicipio: '3547809' },
+      hor: { nome: 'Faculdade Horizonte', tipo: 'anunciante', documento: '45.678.901/0001-23', contato: 'Renato Alves', email: 'comunicacao@horizonte.exemplo', telefone: '(11) 94777-3300', cidade: 'São Caetano do Sul', cep: '09541-000', logradouro: 'Av. Goiás', numero: '2000', bairro: 'Santa Paula', uf: 'SP', codigoMunicipio: '3548807' },
     })) cli[k] = await ins('clientes', d);
 
     /* equipe (todas as contas com a senha de demonstração) */
@@ -89,7 +89,7 @@ export async function seed() {
       ['marina', 'Marina Duarte', 'marketing@rotasul.exemplo', 'cliente', 'rota'],
     ];
     for (const [k, nome, email, perfil, ck] of equipe) {
-      const u = await q1<any>(c, 'INSERT INTO usuarios (nome, email, senha_hash) VALUES ($1,$2,$3) RETURNING id', [nome, email, hash]);
+      const u = await q1<any>(c, 'INSERT INTO usuarios (nome, email, senha_hash, termos_versao, termos_aceitos_em) VALUES ($1,$2,$3,$4,now()) RETURNING id', [nome, email, hash, TERMOS_VERSAO]);
       mem[k] = await ins('membros', { usuarioId: u.id, nome, email, perfil, clienteId: ck ? cli[ck].id : null });
     }
     await ins('membros', { nome: 'Diego Lima', email: 'midia@faro.exemplo', perfil: 'cliente', clienteId: cli.faro.id, convite: 'DIE-5R8N' });
@@ -172,6 +172,10 @@ export async function seed() {
     const fp = await arq('ponto-e001.svg', fotoSvg('E-001 · AV. KENNEDY', '#3A6EA5'));
     await ins('fotos_ponto', { estruturaId: est['E-001'].id, arquivoId: fp.id, data: addDays(t, -200) });
 
+    /* integrações em modo simulado, para demonstrar sem contratar nada */
+    await c.query(`INSERT INTO integracoes (empresa_id, tipo, provedor, config) VALUES ($1, 'whatsapp', 'simulado', $2), ($1, 'nfse', 'simulado', $3)`,
+      [E, JSON.stringify({ automatico: false, horaIni: 9, horaFim: 18, avisarFoto: true }),
+        JSON.stringify({ ambiente: 'homologacao', automatica: 'manual', diasAntes: 5, inscricaoMunicipal: '123456', codigoMunicipio: '3548708', codigoTributarioMunicipio: '', optanteSimples: true, regimeEspecial: null, issRetido: false })]);
     await c.query(`INSERT INTO auditoria (empresa_id, autor_nome, perfil, acao, tabela, rotulo) VALUES ($1, 'Sistema', 'admin', 'criou', 'empresas', 'Dados de exemplo carregados')`, [E]);
     return E;
   });

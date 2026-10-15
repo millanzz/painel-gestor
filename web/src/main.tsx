@@ -14,6 +14,10 @@ import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import './ui/estilo.css';
 import Entrar from './paginas/Entrar';
+import Redefinir from './paginas/Redefinir';
+import { Privacidade, Termos } from './paginas/Legal';
+import { AceiteTermos } from './ui/AceiteTermos';
+import { iniciarMonitoramento } from './monitoramento';
 import Inicio from './paginas/Inicio';
 
 const Agenda = lazy(() => import('./paginas/Agenda'));
@@ -45,6 +49,9 @@ function Protegida({ area, children }: { area: Area; children: ReactNode }) {
 function Rotas() {
   const { sessao, carregando } = useSessao();
   const loc = useLocation();
+  if (loc.pathname === '/termos') return <Termos />;
+  if (loc.pathname === '/privacidade') return <Privacidade />;
+  if (loc.pathname === '/redefinir') return <Redefinir />;
   if (carregando) return <Carregando />;
   if (!sessao || !sessao.empresaId) {
     if (loc.pathname !== '/entrar') return <Navigate to={`/entrar${loc.search || ''}`} replace />;
@@ -54,12 +61,13 @@ function Rotas() {
   if (loc.pathname === '/entrar') return <Entrar />;
 
   if (sessao.perfil === 'cliente') {
-    return <Suspense fallback={<Carregando />}><Routes><Route path="*" element={<Portal />} /></Routes></Suspense>;
+    return <Suspense fallback={<Carregando />}>{sessao.termosPendentes && <AceiteTermos />}<Routes><Route path="*" element={<Portal />} /></Routes></Suspense>;
   }
 
   const P = (area: Area, el: ReactNode) => <Protegida area={area}>{el}</Protegida>;
   return (
     <Casca>
+      {sessao.termosPendentes && <AceiteTermos />}
       <Suspense fallback={<Carregando />}>
         <Routes>
           <Route path="/" element={sessao.perfil === 'operacao' ? <Navigate to="/campo" replace /> : <Inicio />} />
@@ -81,6 +89,8 @@ function Rotas() {
     </Casca>
   );
 }
+
+iniciarMonitoramento();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

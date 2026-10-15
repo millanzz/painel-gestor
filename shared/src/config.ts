@@ -44,7 +44,7 @@ export const CONFIG_PADRAO: ConfigEmpresa = {
   volume: [{ min: 4, pct: 5 }, { min: 8, pct: 10 }],
   regua: [-3, 0, 3, 10],
   bloqueioDias: 15,
-  nfse: { codigoServico: '', aliquota: 5, emissorUrl: '', descricao: 'Veiculação de mídia exterior' },
+  nfse: { codigoServico: '17.25', aliquota: 5, emissorUrl: '', descricao: 'Veiculação de mídia exterior' },
   plano: { id: 'pro', status: 'trial', trialAte: '', proximaCobranca: '' },
 };
 

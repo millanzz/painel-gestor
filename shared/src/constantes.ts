@@ -81,6 +81,9 @@ export const VERIFICACAO: Record<string, [string, Tom]> = {
 /** Distância máxima (m) entre a foto e o ponto para considerar "no local". */
 export const RAIO_FOTO_M = 150;
 
+/** Versão vigente dos termos de uso e da política de privacidade. Mudou o texto, mude a versão. */
+export const TERMOS_VERSAO = '2026-10';
+
 export const PLANOS: Record<string, { nome: string; paineis: number; usuarios: number; preco: number }> = {
   essencial: { nome: 'Essencial', paineis: 20, usuarios: 3, preco: 199 },
   pro: { nome: 'Profissional', paineis: 60, usuarios: 10, preco: 449 },

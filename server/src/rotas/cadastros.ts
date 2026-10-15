@@ -73,6 +73,7 @@ export const defClientes: DefRecurso = {
     nome: zTextoObrig, tipo: z.enum(['anunciante', 'agencia']).default('anunciante'), documento: zTexto, contato: zTexto,
     email: zTexto, telefone: zTexto, comissao: z.preprocess((v) => (v === '' || v == null ? 0 : Number(v)), z.number().min(0).max(100)),
     cidade: zTexto, obs: zTexto,
+    cep: zTexto, logradouro: zTexto, numero: zTexto, complemento: zTexto, bairro: zTexto, uf: zTexto, codigoMunicipio: zTexto, inscricaoMunicipal: zTexto,
   }),
   select: `SELECT t.*,
              (SELECT count(*) FROM contratos k WHERE (k.cliente_id = t.id OR k.agencia_id = t.id) AND k.excluido_em IS NULL)::int AS n_contratos,

@@ -64,7 +64,7 @@ describe('acesso', () => {
   test('cadastro cria empresa com o usuário como admin', async () => {
     const c = new Cliente();
     const email = `teste${Date.now()}@exemplo.com`;
-    const r = await c.post('/api/auth/cadastro', { nome: 'Teste', email, senha: 'senha-forte-1', empresa: 'Outdoor Teste' });
+    const r = await c.post('/api/auth/cadastro', { nome: 'Teste', email, senha: 'senha-forte-1', empresa: 'Outdoor Teste', aceiteTermos: true });
     assert.equal(r.status, 201);
     assert.equal(r.dados.perfil, 'admin');
     const ps = await c.get('/api/paineis');
@@ -283,7 +283,7 @@ describe('administração', () => {
     const m = await admin.post('/api/membros', { nome: 'Nova Pessoa', email: 'nova@exemplo.com', perfil: 'operacao' });
     assert.ok(m.dados.convite);
     const c = new Cliente();
-    const r = await c.post('/api/auth/cadastro', { nome: 'Nova Pessoa', email: `nova${Date.now()}@exemplo.com`, senha: 'senha-forte-2', convite: m.dados.convite });
+    const r = await c.post('/api/auth/cadastro', { nome: 'Nova Pessoa', email: `nova${Date.now()}@exemplo.com`, senha: 'senha-forte-2', convite: m.dados.convite, aceiteTermos: true });
     assert.equal(r.status, 201, JSON.stringify(r.dados));
     assert.equal(r.dados.perfil, 'operacao');
   });

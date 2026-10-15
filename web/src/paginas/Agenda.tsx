@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { addDays, criarCalendario, daysIncl, fdate, MESES, MESES_L, pad2, RESERVA_ST, TIPO_LBL, today } from '@shared';
+import { criarCalendario, daysIncl, fdate, MESES, MESES_L, pad2, RESERVA_ST, TIPO_LBL, today } from '@shared';
 import { api, qs } from '../api';
 import { useSessao } from '../sessao';
 import { Badge, Cabecalho, Carregando, Dialogo, ErroCaixa, Seg, useAvisos } from '../ui/base';
 import { Icone } from '../ui/icones';
 import NovaReserva from './NovaReserva';
+import { MapaFaces } from '../ui/Mapa';
 
 type Visao = 'fita' | 'mapa';
 
@@ -95,7 +96,7 @@ export default function Agenda() {
         </div>
       </div>
 
-      {visao === 'mapa' ? <Mapa faces={grupos.flatMap(([, fs]) => fs)} reservas={d.reservas} hoje={d.hoje} /> : (
+      {visao === 'mapa' ? <MapaFaces faces={grupos.flatMap(([, fs]) => fs)} reservas={d.reservas} hoje={d.hoje} onReservar={edita('reservas') ? (id) => setParams({ reservar: '1', face: id }) : undefined} /> : (
         <div style={{ overflowX: 'auto', flex: 1 }}>
           <div className="fita" style={{ ['--n' as any]: N }}>
             <div className="fita-linha fita-cab">
@@ -231,52 +232,5 @@ function DetalheReserva({ r, fechar, faces }: { r: any; fechar: () => void; face
         }}>Excluir reserva</button>
       )}
     </Dialogo>
-  );
-}
-
-/** Mapa simples: posição relativa das faces pelas coordenadas, cor pela situação de hoje. */
-function Mapa({ faces, reservas, hoje }: { faces: any[]; reservas: any[]; hoje: string }) {
-  const pts = faces.filter((f) => f.lat != null && f.lng != null);
-  const [foco, setFoco] = useState<any>(null);
-  if (!pts.length) return <div className="miolo"><p className="t2">Cadastre latitude e longitude nas estruturas para ver as faces no mapa.</p></div>;
-  const lats = pts.map((p) => +p.lat), lngs = pts.map((p) => +p.lng);
-  const [a, b, c, e] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
-  const pad = 0.12;
-  const x = (lng: number) => ((lng - c) / (e - c || 1)) * (1 - 2 * pad) + pad;
-  const y = (lat: number) => 1 - (((lat - a) / (b - a || 1)) * (1 - 2 * pad) + pad);
-  const situacao = (f: any) => {
-    if (f.status !== 'ativo') return ['fora', '#8C929C'];
-    const r = reservas.find((r) => r.painelId === f.id && r.status !== 'fila' && r.ini <= hoje && r.fim >= hoje);
-    if (!r) { const prox = reservas.find((r) => r.painelId === f.id && r.status !== 'fila' && r.ini > hoje && r.ini <= addDays(hoje, 28)); return prox ? ['livre agora', '#0F7A45'] : ['livre', '#0F7A45']; }
-    return r.status === 'confirmado' ? ['no ar', '#2346D6'] : ['opção', '#6D86E8'];
-  };
-  return (
-    <div className="miolo largo">
-      <div className="card" style={{ position: 'relative', height: 520, overflow: 'hidden', background: 'linear-gradient(#F8F9FA, #F1F3F6)' }}>
-        <svg width="100%" height="100%" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
-          {[...Array(9)].map((_, i) => <line key={i} x1={i * 125} y1={0} x2={i * 125} y2={520} stroke="#E8EAEE" />)}
-          {[...Array(5)].map((_, i) => <line key={i} x1={0} y1={i * 130} x2={1000} y2={i * 130} stroke="#E8EAEE" />)}
-        </svg>
-        {pts.map((f) => {
-          const [t, cor] = situacao(f);
-          return (
-            <button key={f.id} onClick={() => setFoco(f)} title={`${f.codigo} · ${t}`} aria-label={`${f.codigo}, ${t}`}
-              style={{ position: 'absolute', left: `${x(+f.lng) * 100}%`, top: `${y(+f.lat) * 100}%`, transform: 'translate(-50%, -50%)', border: 0, background: 'none', padding: 0 }}>
-              <span style={{ display: 'block', width: 14, height: 14, borderRadius: '50%', background: cor, boxShadow: '0 0 0 3px #fff, 0 2px 6px rgba(22,26,31,.25)' }} />
-              <span className="mono" style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', fontSize: 11, whiteSpace: 'nowrap', background: '#fff', padding: '0 4px', borderRadius: 4, boxShadow: 'var(--sh-1)' }}>{f.codigo}</span>
-            </button>
-          );
-        })}
-        {foco && (
-          <div className="card p" style={{ position: 'absolute', right: 16, bottom: 16, width: 280, boxShadow: 'var(--sh-3)' }}>
-            <div className="linha entre"><span className="mono" style={{ fontWeight: 500 }}>{foco.codigo}</span><button className="icone-btn" onClick={() => setFoco(null)} aria-label="Fechar"><Icone n="fechar" /></button></div>
-            <p className="t2 xs">{foco.endereco} · {foco.cidade}</p>
-            <p className="xs" style={{ marginTop: 8 }}>{TIPO_LBL[foco.tipo]} · {situacao(foco)[0]}</p>
-            <a className="btn btn-sec btn-sm" style={{ marginTop: 12 }} target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${foco.lat},${foco.lng}`}><Icone n="rota" />Ver no Google Maps</a>
-          </div>
-        )}
-      </div>
-      <div className="sm t2 linha g-200"><span className="linha g-100"><i style={{ width: 10, height: 10, borderRadius: '50%', background: '#2346D6', display: 'inline-block' }} />No ar</span><span className="linha g-100"><i style={{ width: 10, height: 10, borderRadius: '50%', background: '#6D86E8', display: 'inline-block' }} />Opção</span><span className="linha g-100"><i style={{ width: 10, height: 10, borderRadius: '50%', background: '#0F7A45', display: 'inline-block' }} />Livre</span></div>
-    </div>
   );
 }
