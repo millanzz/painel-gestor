@@ -1,0 +1,29 @@
+# Blueprint do Render (render.com): New → Blueprint → escolha este repositório.
+# Plano grátis: o serviço dorme após 15 min sem acesso (veja docs/PUBLICAR.md).
+services:
+  - type: web
+    name: painel-gestor
+    runtime: docker
+    plan: free
+    region: virginia            # mesma região do banco no Neon (AWS US East)
+    healthCheckPath: /api/ping
+    autoDeploy: true            # publica sozinho a cada push na main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL       # cole a connection string do Neon
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: APP_URL            # ex.: https://painel-gestor.onrender.com
+        sync: false
+      - key: STORAGE            # "banco" = fotos no PostgreSQL (sem conta extra)
+        value: banco
+      - key: CRIAR_EXEMPLO      # cria a exibidora de exemplo na 1ª vez
+        value: "1"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: SENTRY_DSN
+        sync: false

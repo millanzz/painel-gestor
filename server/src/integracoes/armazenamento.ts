@@ -1,6 +1,7 @@
-// Onde ficam fotos e artes. "s3" funciona com Amazon S3, Cloudflare R2 e MinIO
-// (defina S3_ENDPOINT para R2/MinIO). "disco" grava numa pasta local.
-// Arquivos antigos, gravados no banco (coluna dados), continuam sendo lidos.
+// Onde ficam fotos e artes. "s3" funciona com Amazon S3, Cloudflare R2, Supabase
+// Storage e MinIO (defina S3_ENDPOINT). "disco" grava numa pasta local.
+// "banco" guarda no próprio PostgreSQL: útil em hospedagem grátis, onde o disco
+// é apagado a cada reinício. Arquivos gravados em qualquer modo continuam sendo lidos.
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -31,17 +32,18 @@ export async function otimizarImagem(buf: Buffer, mime: string): Promise<{ buf: 
   }
 }
 
-export async function guardar(empresaId: string, buf: Buffer, mime: string): Promise<{ chave: string; armazenamento: 's3' | 'disco' }> {
+export async function guardar(empresaId: string, buf: Buffer, mime: string): Promise<{ chave: string | null; armazenamento: 's3' | 'disco' | 'banco'; dados: Buffer | null }> {
+  if (env.armazenamento === 'banco') return { chave: null, armazenamento: 'banco', dados: buf };
   const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1] || 'bin';
   const chave = `${empresaId}/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${ext}`;
   if (env.armazenamento === 's3') {
     await cliente().send(new PutObjectCommand({ Bucket: env.s3.bucket, Key: chave, Body: buf, ContentType: mime }));
-    return { chave, armazenamento: 's3' };
+    return { chave, armazenamento: 's3', dados: null };
   }
   const destino = path.resolve(env.pastaUploads, chave);
   await mkdir(path.dirname(destino), { recursive: true });
   await writeFile(destino, buf);
-  return { chave, armazenamento: 'disco' };
+  return { chave, armazenamento: 'disco', dados: null };
 }
 
 export async function ler(a: { armazenamento: string; chave: string | null; dados: Buffer | null }): Promise<Buffer> {

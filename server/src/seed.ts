@@ -3,7 +3,6 @@
 // Uso: npm run db:seed   (apaga e recria a empresa "Painéis ABC Mídia (exemplo)")
 import bcrypt from 'bcryptjs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { addDays, CONFIG_PADRAO, criarCalendario, TERMOS_VERSAO, today } from '@shared';
 import { inserir, pool, q1, tx } from './db';
 import { sincronizarOS } from './dominio';
@@ -181,7 +180,8 @@ export async function seed() {
   });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+// Compara pelo nome do arquivo: no build (esbuild) os módulos vão juntos para o mesmo arquivo.
+if (/^seed\.(ts|js)$/.test(path.basename(process.argv[1] || ''))) {
   seed()
     .then(() => {
       console.log('Dados de exemplo criados. Entre com qualquer conta abaixo e a senha "' + SENHA_DEMO + '":');

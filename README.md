@@ -41,6 +41,8 @@ node server/dist/index.js         # serve a API e o front na mesma porta
 
 Ou com Docker: `docker compose --profile app up --build` (API + front + banco). Defina `JWT_SECRET` e `APP_URL` de verdade.
 
+**Publicar de graça (Render + Neon):** passo a passo em [`docs/PUBLICAR.md`](docs/PUBLICAR.md).
+
 ---
 
 ## Integrações
@@ -50,7 +52,7 @@ Tudo funciona **sem nenhuma chave**: cada integração tem um modo simulado, que
 | Integração | Onde configurar | Sem configuração |
 |---|---|---|
 | **E-mail** (recuperação de senha, convites) via [Resend](https://resend.com) | `RESEND_API_KEY` e `EMAIL_FROM` no `.env` (domínio verificado no Resend) | e-mail fica no histórico de mensagens e no log do servidor |
-| **Fotos e artes** em Amazon S3, Cloudflare R2 ou MinIO | `STORAGE=s3` e `S3_*` no `.env` | grava em disco (`UPLOAD_DIR`); no Docker, no volume `uploads` |
+| **Fotos e artes** em Amazon S3, Cloudflare R2 ou MinIO | `STORAGE=s3` e `S3_*` no `.env` | grava em disco (`UPLOAD_DIR`) ou, com `STORAGE=banco`, no próprio PostgreSQL (bom para hospedagem grátis) |
 | **Monitoramento de erros** com [Sentry](https://sentry.io) | `SENTRY_DSN` (API) e `VITE_SENTRY_DSN` no `web/.env` (front) | desligado |
 | **WhatsApp automático** via [Z-API](https://z-api.io) | Configurações → Integrações (instância, token e Client-Token), por empresa | mensagens simuladas, ou o botão abre o WhatsApp com o texto pronto |
 | **NFS-e automática** via [Focus NFe](https://focusnfe.com.br) | Configurações → Integrações (token, ambiente, inscrição municipal, código IBGE, item da lista de serviço) | notas simuladas, numeradas a partir de 9001 |

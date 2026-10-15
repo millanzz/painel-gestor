@@ -9,6 +9,7 @@ import { rotinas } from './dominio';
 import { env } from './env';
 import { tratarErros } from './http';
 import { iniciarMonitoramento } from './monitoramento';
+import { seed } from './seed';
 import { rotasCrud } from './crud';
 import { agenda } from './rotas/agenda';
 import { rotasArtes } from './rotas/artes';
@@ -38,6 +39,9 @@ export function criarApp() {
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());
+
+  // Responde sem tocar no banco: serve para manter o servidor acordado sem gastar o banco.
+  app.get('/api/ping', (_req, res) => { res.json({ ok: true }); });
 
   app.get('/api/saude', async (_req, res) => {
     await pool.query('SELECT 1');
@@ -97,7 +101,7 @@ export function criarApp() {
   return app;
 }
 
-const ehPrincipal = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+const ehPrincipal = /^index\.(ts|js)$/.test(path.basename(process.argv[1] || ''));
 if (ehPrincipal) {
   const app = criarApp();
   app.listen(env.port, () => console.log(`Painel Gestor rodando em http://localhost:${env.port}`));
@@ -111,6 +115,11 @@ if (ehPrincipal) {
       if (nf) console.log(`[rotinas] ${nf} nota(s) fiscal(is) emitida(s)`);
     } catch (e: any) { console.error('[rotinas]', e.message); }
   };
-  rodar();
+  const exemplo = async () => {
+    if (!env.criarExemplo) return;
+    const tem = await pool.query(`SELECT 1 FROM empresas WHERE nome = 'Painéis ABC Mídia (exemplo)'`);
+    if (!tem.rowCount) { await seed(); console.log('[exemplo] exibidora de exemplo criada (senha painel123)'); }
+  };
+  exemplo().catch((e) => console.error('[exemplo]', e.message)).finally(rodar);
   setInterval(rodar, 60 * 60 * 1000);
 }

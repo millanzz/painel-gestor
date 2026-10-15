@@ -23,13 +23,14 @@ process.env.S3_ENDPOINT = `http://127.0.0.1:${(srv.address() as AddressInfo).por
 process.env.S3_ACCESS_KEY_ID = 'teste';
 process.env.S3_SECRET_ACCESS_KEY = 'teste';
 const { guardar, ler, otimizarImagem } = await import('../src/integracoes/armazenamento');
+const { env } = await import('../src/env');
 after(() => srv.close());
 
 test('grava e lê pelo S3 com o caminho da empresa', async () => {
   const buf = Buffer.from('conteudo-de-teste');
   const r = await guardar('empresa-1', buf, 'image/jpeg');
   assert.equal(r.armazenamento, 's3');
-  assert.match(r.chave, /^empresa-1\/\d{4}-\d{2}\/[\w-]+\.jpg$/);
+  assert.match(r.chave!, /^empresa-1\/\d{4}-\d{2}\/[\w-]+\.jpg$/);
   assert.ok(objetos.has(`/fotos/${r.chave}`), 'objeto enviado ao bucket');
   const volta = await ler({ armazenamento: 's3', chave: r.chave, dados: null });
   assert.equal(volta.toString(), 'conteudo-de-teste');
@@ -42,4 +43,14 @@ test('foto grande de celular é reduzida', async () => {
   assert.equal(mime, 'image/jpeg');
   assert.ok((meta.width || 0) <= 1600 && (meta.height || 0) <= 1600);
   assert.ok(buf.length < grande.length);
+});
+
+test('modo banco guarda o conteúdo na própria linha', async () => {
+  env.armazenamento = 'banco';
+  try {
+    const r = await guardar('empresa-1', Buffer.from('no-banco'), 'image/jpeg');
+    assert.equal(r.armazenamento, 'banco');
+    assert.equal(r.chave, null);
+    assert.equal((await ler(r)).toString(), 'no-banco');
+  } finally { env.armazenamento = 's3'; }
 });

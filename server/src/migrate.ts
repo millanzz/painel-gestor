@@ -28,6 +28,7 @@ export async function migrar(log = true) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+// Compara pelo nome do arquivo: no build (esbuild) os módulos vão juntos para o mesmo arquivo.
+if (/^migrate\.(ts|js)$/.test(path.basename(process.argv[1] || ''))) {
   migrar().then(() => pool.end()).catch((e) => { console.error(e); process.exit(1); });
 }

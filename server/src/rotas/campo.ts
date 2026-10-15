@@ -85,13 +85,13 @@ export function verificarLocal(exif: { lat?: number; lng?: number }, ponto: { la
   return { verificacao: d <= RAIO_FOTO_M ? ('ok' as const) : ('longe' as const), distanciaM: d };
 }
 
-/** Comprime a imagem, grava no armazenamento (S3/R2 ou disco) e registra no banco. */
+/** Comprime a imagem, grava no armazenamento (S3/R2, disco ou banco) e registra no banco. */
 export async function guardarArquivo(c: PoolClient, empresaId: string, f: Express.Multer.File) {
   const { buf, mime } = await otimizarImagem(f.buffer, f.mimetype);
-  const { chave, armazenamento } = await guardar(empresaId, buf, mime);
+  const { chave, armazenamento, dados } = await guardar(empresaId, buf, mime);
   const nome = (f.originalname || 'foto').replace(/\.[^.]+$/, '') + (mime === 'image/jpeg' ? '.jpg' : '');
-  return inserir<any>(c, 'arquivos', { empresaId, nome, mime, tamanho: buf.length, chave, armazenamento },
-    ['empresaId', 'nome', 'mime', 'tamanho', 'chave', 'armazenamento']);
+  return inserir<any>(c, 'arquivos', { empresaId, nome, mime, tamanho: buf.length, chave, armazenamento, dados },
+    ['empresaId', 'nome', 'mime', 'tamanho', 'chave', 'armazenamento', 'dados']);
 }
 
 async function salvarComprovacao(c: PoolClient, ctx: Ctx, f: Express.Multer.File, d: { painelId: string; reservaId: string | null; osId: string | null; tipo: string }) {

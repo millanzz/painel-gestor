@@ -5,6 +5,9 @@ COPY server/package.json server/
 COPY web/package.json web/
 RUN npm ci || npm install
 COPY . .
+# Variáveis do front são lidas na hora do build (o Render as repassa como build args)
+ARG VITE_SENTRY_DSN VITE_MAPA_TILES VITE_MAPA_ATRIBUICAO
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN VITE_MAPA_TILES=$VITE_MAPA_TILES VITE_MAPA_ATRIBUICAO=$VITE_MAPA_ATRIBUICAO
 RUN npm run build
 
 FROM node:22-alpine

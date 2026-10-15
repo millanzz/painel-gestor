@@ -11,8 +11,8 @@ export const env = {
   resendKey: e.RESEND_API_KEY || '',
   emailDe: e.EMAIL_FROM || 'Painel Gestor <nao-responda@painelgestor.com.br>',
 
-  /* arquivos: "s3" (Amazon S3, Cloudflare R2, MinIO…) ou "disco" (pasta local) */
-  armazenamento: (e.STORAGE || (e.S3_BUCKET ? 's3' : 'disco')) as 's3' | 'disco',
+  /* arquivos: "s3" (Amazon S3, Cloudflare R2, Supabase, MinIO…), "disco" (pasta local) ou "banco" (no PostgreSQL) */
+  armazenamento: (e.STORAGE || (e.S3_BUCKET ? 's3' : 'disco')) as 's3' | 'disco' | 'banco',
   pastaUploads: e.UPLOAD_DIR || './uploads',
   s3: {
     bucket: e.S3_BUCKET || '',
@@ -23,6 +23,9 @@ export const env = {
   },
 
   sentryDsn: e.SENTRY_DSN || '',
+
+  /* "1" cria a exibidora de exemplo na primeira vez que o servidor sobe (para demonstração) */
+  criarExemplo: e.CRIAR_EXEMPLO === '1',
 
   /* endereços dos provedores (trocáveis para testes) */
   focusUrl: { homologacao: e.FOCUS_URL_HOMOLOGACAO || 'https://homologacao.focusnfe.com.br', producao: e.FOCUS_URL_PRODUCAO || 'https://api.focusnfe.com.br' },
